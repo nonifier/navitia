@@ -151,3 +151,14 @@ class NestedPropertyField(jsonschema.Field):
 
 class IntNestedPropertyField(NestedPropertyField):
     to_value = staticmethod(int)
+
+
+class LambdaField(serpy.Field):
+    getter_takes_serializer = True
+
+    def __init__(self, method, **kwargs):
+        super(LambdaField, self).__init__(**kwargs)
+        self.method = method
+
+    def as_getter(self, serializer_field_name, serializer_cls):
+        return self.method
