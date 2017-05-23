@@ -284,6 +284,7 @@ RailShuttle | Navette ferrée (VAL) | 3
 Shuttle | Navette | 7
 Taxi | Taxi | 7
 Train | Train | 3
+Trolleybus | Trolleybus | 7
 Tramway | Tramway | 5
 
 La liste ci-dessous complète cette liste de modes physiques avec les modes de rabattement possibles dans un itinéraire, afin de leur associer un taux de CO2 dans l'export.
@@ -293,6 +294,7 @@ Code du mode physique | Nom du mode physique
 BikeSharingService | Vélo en libre service
 Bike | Vélo
 Car | Voiture
+Walk | Marche à pied
 
 ### equipments.txt (optionnel)
 Colonne | Type | Contrainte | Commentaire
