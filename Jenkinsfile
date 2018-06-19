@@ -2,8 +2,10 @@ pipeline {
   agent any
   stages {
     stage('Build') {
+      agent {
+        docker { image 'navitia/debian7_dev' }
+      }
       steps {
-        sh 'mkdir build_src && cd build_src'
         sh 'cmake -DCMAKE_BUILD_TYPE=Release ../source'
       }
     }
