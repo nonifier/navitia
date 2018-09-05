@@ -5,7 +5,8 @@ git:
   submodules: false
 
 before_install: 
-  - echo "Before install"
+  - sed -i 's,git\@github.com:\([^/]*\)/\(.*\).git,https://github.com/\1/\2,' .gitmodules
+  - git submodule update --init --recursive
 
 install:
   - ls -l
@@ -15,6 +16,7 @@ before_script:
   - echo "Before Script event"  
 
 script:
+  - python --version
   - echo "This is the script process"
 
 after_script:
