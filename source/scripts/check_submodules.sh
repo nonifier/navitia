@@ -1,5 +1,7 @@
 #!/bin/bash
 
+red=`tput setaf 1`
+
 submodules=`git submodule | tr -s \  : `  # trim the spaces, and convert them to colon
 
 for submod in $submodules
@@ -17,10 +19,10 @@ do
 		is_merged=`git branch --all --merged HEAD --no-color | grep $remote_ref`
 		contained=`git branch --all --contains HEAD --no-color | grep $remote_ref`
 		if [ -z "$is_merged" -a -z "$contained" ]; then
-		  echo "A submodule points to a commit not merged to its head ! "
-		  echo " > submodule: $module_path"
-		  echo " > commit: $sha1"
-		  echo " > HEAD: $remote_ref"
+		  echo "${red}A submodule points to a commit not merged to its head ! "
+		  echo "${red} > submodule: $module_path"
+		  echo "${red} > commit: $sha1"
+		  echo "${red} > HEAD: $remote_ref"
 		  exit 1
 		fi
 	popd > /dev/null
