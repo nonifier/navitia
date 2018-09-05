@@ -1,6 +1,5 @@
 
 langage: minimal
-sudo: false
 
 install:
   - echo "This is the install process"
