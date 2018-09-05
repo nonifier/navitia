@@ -1,5 +1,4 @@
 #!/bin/bash
-set -ev
 
 submodules=`git submodule | tr -s \  : `  # trim the spaces, and convert them to colon
 

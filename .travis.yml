@@ -9,7 +9,7 @@ before_install:
   - git submodule update --init --recursive
 
 install:
-  - ./source/scripts/check_submodules.sh # Make sure submodules references are merged in
+  - bash source/scripts/check_submodules.sh # Make sure submodules references are merged in !
 
 before_script:
   - echo "Before Script event"  
