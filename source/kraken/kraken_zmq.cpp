@@ -39,6 +39,7 @@ www.navitia.io
 #include "utils/init.h"
 #include "kraken_zmq.h"
 #include "utils/zmq.h"
+#include "utils/functions.h" //navitia::absolute_path function
 
 static void show_usage(const std::string& name)
 {
@@ -55,12 +56,8 @@ int main(int argn, char** argv){
 
     std::string::size_type posSlash = std::string(argv[0]).find_last_of( "\\/" );
     std::string application = std::string(argv[0]).substr(posSlash+1);
-    std::string path;
-    char buf[256];
-    if(getcwd(buf, sizeof(buf))){
-        path = std::string(buf) + "/";
-    }else{
-        perror("getcwd");
+    std::string path = navitia::absolute_path();
+    if (path.empty()) {
         return 1;
     }
     std::string conf_file;
@@ -96,20 +93,30 @@ int main(int argn, char** argv){
     std::string zmq_socket = conf.zmq_socket_path();
     //TODO: try/catch
     LoadBalancer lb(context);
+
+    const navitia::Metrics metrics(conf.metrics_binding(), conf.instance_name());
+
+    threads.create_thread(navitia::MaintenanceWorker(data_manager, conf));
+    //
+    //Data have been loaded, we can now accept connections
     try{
         lb.bind(zmq_socket, "inproc://workers");
     }catch(zmq::error_t& e){
-        LOG4CPLUS_ERROR(logger, "zmq::socket_t::bind() failure: " << e.what());
+        LOG4CPLUS_ERROR(logger, "zmq::socket_t::bind( "<< zmq_socket << " ) failure: " << e.what());
+        threads.interrupt_all();
+        threads.join_all();
         return 1;
     }
-
-    threads.create_thread(navitia::MaintenanceWorker(data_manager, conf));
 
     int nb_threads = conf.nb_threads();
     // Launch pool of worker threads
     LOG4CPLUS_INFO(logger, "starting workers threads");
     for(int thread_nbr = 0; thread_nbr < nb_threads; ++thread_nbr) {
-        threads.create_thread(std::bind(&doWork, std::ref(context), std::ref(data_manager), conf));
+        threads.create_thread(std::bind(&doWork,
+                                        std::ref(context),
+                                        std::ref(data_manager),
+                                        conf,
+                                        std::ref(metrics)));
     }
 
     // Connect worker threads to client threads via a queue

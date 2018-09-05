@@ -28,8 +28,8 @@
 # IRC #navitia on freenode
 # https://groups.google.com/d/forum/navitia
 # www.navitia.io
-from __future__ import absolute_import
-from jormungandr.realtime_schedule.realtime_proxy import RealtimeProxy
+from __future__ import absolute_import, print_function, division
+from jormungandr.realtime_schedule.realtime_proxy import RealtimeProxy, RealtimeProxyError
 from flask import logging
 import pybreaker
 import pytz
@@ -42,6 +42,19 @@ from datetime import datetime
 class Cleverage(RealtimeProxy):
     """
     class managing calls to cleverage external service providing real-time next passages
+
+
+    curl example to check/test that external service is working:
+    curl -X GET -H 'X-Keolis-Api-Version: {version}, X-Keolis-Api-Key: {key}' '{server}/{stop_code}'
+
+    On the response, Navitia matches route-point's {line_code} with
+    'code' in each element at the root of the response.
+
+    {line_code} and {stop_code} are provided using the same code key, named after
+    the 'destination_id_tag' if provided on connector's init, or the 'id' otherwise.
+
+    In practice it will look like:
+    curl -X GET -H 'X-Keolis-Api-Version: 1.0, X-Keolis-Api-Key: BLA-68764125-BOB' 'http://api.bobito.fr/api/schedule/3763'
     """
     def __init__(self, id, service_url, service_args, timezone, object_id_tag=None,
                  destination_id_tag=None, instance=None, timeout=10, **kwargs):
@@ -60,7 +73,10 @@ class Cleverage(RealtimeProxy):
         """
          used as the cache key. we use the rt_system_id to share the cache between servers in production
         """
-        return self.rt_system_id
+        try:
+            return self.rt_system_id.encode('utf-8', 'backslashreplace')
+        except:
+            return self.rt_system_id
 
     @cache.memoize(app.config['CACHE_CONFIGURATION'].get('TIMEOUT_CLEVERAGE', 30))
     def _call_cleverage(self, url):
@@ -145,7 +161,7 @@ class Cleverage(RealtimeProxy):
         return self._get_passages(route_point, r.json())
 
     def status(self):
-        return {'id': self.rt_system_id,
+        return {'id': unicode(self.rt_system_id),
                 'timeout': self.timeout,
                 'circuit_breaker': {'current_state': self.breaker.current_state,
                                     'fail_counter': self.breaker.fail_counter,

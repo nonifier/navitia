@@ -30,7 +30,7 @@ www.navitia.io
 
 #pragma once
 #include "type/type.h"
-#include "third_party/osmpbfreader/osmpbfreader.h"
+#include <osmpbfreader/osmpbfreader.h>
 #include "utils/lotus.h"
 #include "utils/logger.h"
 #include <unordered_map>
@@ -41,7 +41,7 @@ www.navitia.io
 #include <boost/geometry.hpp>
 #include <boost/geometry/multi/geometries/multi_polygon.hpp>
 #include <boost/geometry/multi/geometries/multi_point.hpp>
-#include "third_party/RTree/RTree.h"
+#include <RTree/RTree.h>
 
 namespace bg = boost::geometry;
 typedef bg::model::point<double, 2, bg::cs::cartesian> point;
@@ -157,7 +157,7 @@ struct OSMRelation {
         return osm_id < other;
     }
 
-    void set_centre(float lon, float lat) const {
+    void set_centre(double lon, double lat) const {
         centre = point(lon, lat);
     }
 
@@ -372,17 +372,33 @@ struct Rect{
 
 enum class OsmObjectType {
     Node,
-    Way
+    Way,
+    Relation,
 };
 
 inline std::string to_string(OsmObjectType t) {
     switch (t) {
-    case OsmObjectType::Node: return "n";
-    case OsmObjectType::Way: return "w";
+    case OsmObjectType::Node : return "node";
+    case OsmObjectType::Way : return "way";
+    case OsmObjectType::Relation : return "relation";
     default:
         throw navitia::exception("not implemented");
     }
 }
+
+class OsmPoi : public ed::types::Poi
+{ 
+public:
+    OsmPoi(
+        const OsmObjectType type,
+        const u_int64_t id) 
+    {
+        uri += "osm:";
+        uri += to_string(type);
+        uri += ":";
+        uri += std::to_string(id);
+    }
+};
 
 struct PoiHouseNumberVisitor {
     const size_t max_inserts_without_bulk = 20000;
@@ -424,4 +440,7 @@ struct PoiHouseNumberVisitor {
 inline bool operator<(const ed::connectors::it_way w1, const ed::connectors::it_way w2) {
     return w1->osm_id < w2->osm_id;
 }
+
+int osm2ed(int argc, const char** argv);
+
 }}

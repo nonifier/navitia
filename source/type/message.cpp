@@ -1,28 +1,28 @@
 /* Copyright © 2001-2014, Canal TP and/or its affiliates. All rights reserved.
-  
+
 This file is part of Navitia,
     the software to build cool stuff with public transport.
- 
+
 Hope you'll enjoy and contribute to this project,
     powered by Canal TP (www.canaltp.fr).
 Help us simplify mobility and open public transport:
     a non ending quest to the responsive locomotion way of traveling!
-  
+
 LICENCE: This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as published by
 the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
-   
+
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 GNU Affero General Public License for more details.
-   
+
 You should have received a copy of the GNU Affero General Public License
 along with this program. If not, see <http://www.gnu.org/licenses/>.
-  
+
 Stay tuned using
-twitter @navitia 
+twitter @navitia
 IRC #navitia on freenode
 https://groups.google.com/d/forum/navitia
 www.navitia.io
@@ -193,9 +193,10 @@ bool Impact::is_relevant(const std::vector<const StopTime*>& stop_times) const {
     if (line_section_impacted_obj_it != informed_entities().end()) {
         // note in this we take the premise that an impact
         // cannot impact a line section AND a vj
-        for (const auto& st: stop_times) {
-            // if one stop point of the stoptimes is impacted by the same impact
-            // it means the section is impacted
+
+        // if the origin or the destination is impacted by the same impact
+        // it means the section is impacted
+        for (const auto& st: {stop_times.front(), stop_times.back()}) {
             for (const auto& sp_message: st->stop_point->get_impacts()) {
                 if (sp_message.get() == this) {
                     return true;
@@ -221,6 +222,93 @@ bool Impact::is_line_section_of(const Line& line) const {
         const auto* line_section = boost::get<nt::disruption::LineSection>(&entity);
         return line_section && line_section->line && line_section->line->idx == line.idx;
     });
+}
+
+template<class Cont>
+Indexes make_indexes(const Cont& objs) {
+
+    using ObjPtrType = typename Cont::value_type;
+    static_assert(std::is_pointer<ObjPtrType>::value,
+                 "objs should be a container of pointers");
+
+    using ObjType = typename std::remove_pointer<ObjPtrType>::type;
+    static_assert(std::is_base_of<Header, ObjType>::value,
+                  "objs be a container of pointers that inherit from navitia::type::Header");
+
+    Indexes indexes;
+    for(const auto o : objs) {
+        indexes.insert(o->idx);
+    }
+    return indexes;
+}
+
+template<>
+Indexes make_indexes(const idx_t& idx) {
+    Indexes indexes;
+    indexes.insert(idx);
+    return indexes;
+}
+
+using pair_indexes = std::pair<Type_e, Indexes> ;
+struct ImpactVisitor : boost::static_visitor<pair_indexes> {
+    Type_e target = Type_e::Unknown;
+    const PT_Data& pt_data;
+
+    ImpactVisitor(Type_e target, const PT_Data& pt_data):
+            target(target), pt_data(pt_data)
+    {}
+
+    pair_indexes operator()(const disruption::UnknownPtObj) {
+        return {Type_e::Unknown, Indexes{}};
+    }
+    pair_indexes operator()(const Network* n) {
+        return {Type_e::Network, make_indexes(n->idx)};
+    }
+    pair_indexes operator()(const StopArea* sa) {
+        return {Type_e::StopArea, make_indexes(sa->idx)};
+    }
+    pair_indexes operator()(const StopPoint* sp) {
+        return {Type_e::StopPoint, make_indexes(sp->idx)};
+    }
+    pair_indexes operator()(const LineSection& ls) {
+        switch(target) {
+            case Type_e::Line:
+                return {target, make_indexes(ls.line->idx)};
+            case Type_e::Network:
+                return {target, make_indexes(ls.line->network->idx)};
+            case Type_e::Route:
+                return {target, make_indexes(ls.routes)};
+            case Type_e::StopPoint: {
+                const auto & sps = ls.get_stop_points_section();
+                return {target, make_indexes(sps)};
+            }
+            default:
+                return {Type_e::Unknown, Indexes{}};
+        }
+    }
+    pair_indexes operator()(const Line* l) {
+        return {Type_e::Line, make_indexes(l->idx)};
+    }
+    pair_indexes operator()(const Route* r) {
+        return {Type_e::Route, make_indexes(r->idx)};
+    }
+    pair_indexes operator()(const MetaVehicleJourney* mvj) {
+        return {Type_e::ValidityPattern, make_indexes(mvj->idx)};
+    }
+};
+
+Indexes Impact::get(Type_e target, const PT_Data& pt_data) const {
+    Indexes result;
+    ImpactVisitor visitor(target, pt_data);
+
+    for(const auto& entitie: informed_entities()){
+        auto pair_type_indexes = boost::apply_visitor(visitor, entitie);
+        if(target == pair_type_indexes.first){
+            result.insert(pair_type_indexes.second.begin(), pair_type_indexes.second.end());
+        }
+    }
+
+    return result;
 }
 
 const type::ValidityPattern Impact::get_impact_vp(const boost::gregorian::date_period& production_date) const {

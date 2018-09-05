@@ -29,15 +29,15 @@
 
 from __future__ import absolute_import, print_function, unicode_literals, division
 import serpy
-from navitiacommon import type_pb2
 
 from jormungandr.interfaces.v1.serializer.base import PbGenericSerializer, EnumListField, LiteralField
-from jormungandr.interfaces.v1.serializer.jsonschema.fields import Field, DateTimeType, DateType
+from jormungandr.interfaces.v1.serializer.jsonschema.fields import Field, DateType
 from jormungandr.interfaces.v1.serializer.time import TimeField, PeriodSerializer, DateTimeField
 from jormungandr.interfaces.v1.serializer.fields import *
 from jormungandr.interfaces.v1.serializer import jsonschema, base
-from navitiacommon.type_pb2 import ActiveStatus, Channel, hasEquipments, Properties
-from navitiacommon.response_pb2 import SectionAdditionalInformationType
+from jormungandr.parking_space_availability.bss import stands
+from navitiacommon.type_pb2 import ActiveStatus, Channel, hasEquipments, Properties, NavitiaType, Severity, \
+    StopTimeUpdateStatus, RTLevel
 
 
 LABEL_DESCRIPTION = """
@@ -79,7 +79,7 @@ class MessageSerializer(PbNestedSerializer):
 
 class SeveritySerializer(PbNestedSerializer):
     name = jsonschema.Field(schema_type=str)
-    effect = jsonschema.Field(schema_type=str)
+    effect = EnumField(pb_type=Severity.Effect, lower_case=False)
     color = jsonschema.Field(schema_type=str)
     priority = jsonschema.Field(schema_type=int)
 
@@ -99,7 +99,7 @@ class PtObjectSerializer(PbGenericSerializer):
     route = jsonschema.MethodField(schema_type=lambda: RouteSerializer())
     commercial_mode = jsonschema.MethodField(schema_type=lambda: CommercialModeSerializer())
     trip = jsonschema.MethodField(schema_type=lambda: TripSerializer())
-    embedded_type = EnumField(attr='embedded_type', display_none=True)
+    embedded_type = EnumField(attr='embedded_type', pb_type=NavitiaType, display_none=True)
 
     def get_trip(self, obj):
         if obj.HasField(str('trip')):
@@ -200,7 +200,7 @@ class ImpactedStopSerializer(PbNestedSerializer):
     amended_arrival_time = TimeField(attr='amended_stop_time.arrival_time')
     amended_departure_time = TimeField(attr='amended_stop_time.departure_time')
     cause = jsonschema.Field(schema_type=str, display_none=True)
-    stop_time_effect = EnumField(attr='effect')
+    stop_time_effect = EnumField(attr='effect', pb_type=StopTimeUpdateStatus)
     departure_status = EnumField()
     arrival_status = EnumField()
 
@@ -214,7 +214,7 @@ class ImpactedStopSerializer(PbNestedSerializer):
 class ImpactedSectionSerializer(PbNestedSerializer):
     f = PtObjectSerializer(label='from', attr='from')
     to = PtObjectSerializer()
-    routes = jsonschema.MethodField(schema_type=lambda: RouteSerializer(Many=True))
+    routes = jsonschema.MethodField(schema_type=lambda: RouteSerializer(many=True))
 
     def get_routes(self, obj):
         return RouteSerializer(obj.routes, display_none=False, many=True).data
@@ -276,6 +276,7 @@ class StandsSerializer(PbNestedSerializer):
     available_places = jsonschema.IntField()
     available_bikes = jsonschema.IntField()
     total_stands = jsonschema.IntField()
+    status = jsonschema.StrField(schema_metadata={"enum": [v.name for v in stands.StandsStatus], "type": "string"})
 
 
 class AdminSerializer(PbGenericSerializer):
@@ -298,7 +299,7 @@ class PoiSerializer(PbGenericSerializer):
     label = jsonschema.Field(schema_type=str)
     administrative_regions = AdminSerializer(many=True, display_none=False)
     poi_type = PoiTypeSerializer(display_none=False)
-    properties = jsonschema.MethodField(schema_metadata={'type': 'object','additionalProperties': {'type': 'string'}})
+    properties = jsonschema.MethodField(schema_metadata={'type': 'object', 'additionalProperties': {'type': 'string'}})
     address = AddressSerializer()
     stands = LiteralField(None, schema_type=StandsSerializer, display_none=False)
 
@@ -327,6 +328,13 @@ class StopPointSerializer(PbGenericSerializer):
     stop_area = jsonschema.MethodField(schema_type=lambda: StopAreaSerializer(), display_none=False)
     equipments = Equipments(attr='has_equipments', display_none=True)
     address = AddressSerializer(display_none=False)
+    fare_zone = jsonschema.MethodField(schema_type=lambda: FareZoneSerializer(), display_none=False)
+
+    def get_fare_zone(self, obj):
+        if obj.HasField(str('fare_zone')):
+            return FareZoneSerializer(obj.fare_zone, display_none=False).data
+        else:
+            return None
 
     def get_stop_area(self, obj):
         if obj.HasField(str('stop_area')):
@@ -357,7 +365,7 @@ class PlaceSerializer(PbGenericSerializer):
     stop_area = StopAreaSerializer(display_none=False)
     stop_point = StopPointSerializer(display_none=False)
     administrative_region = AdminSerializer(display_none=False)
-    embedded_type = EnumField(attr='embedded_type', display_none=True)
+    embedded_type = EnumField(attr='embedded_type', pb_type=NavitiaType, display_none=True)
     address = AddressSerializer(display_none=False)
     poi = PoiSerializer(display_none=False)
 
@@ -375,7 +383,7 @@ class NetworkSerializer(PbGenericSerializer):
 
 
 class RouteSerializer(PbGenericSerializer):
-    is_frequence = StrField()
+    is_frequence = StrField(schema_metadata={"enum": ["False"], "type": "string"})
     direction_type = jsonschema.Field(schema_type=str, display_none=True)
     physical_modes = PhysicalModeSerializer(many=True, display_none=False)
     comments = CommentSerializer(many=True, display_none=False)
@@ -571,4 +579,4 @@ class StopDateTimeSerializer(PbNestedSerializer):
     # additional_informations is a nullable field, add nullable=True when we migrate to swagger 3
     additional_informations = AdditionalInformation(attr='additional_informations', display_none=True, pb_type=Properties.AdditionalInformation)
     links = PropertiesLinksSerializer(attr="properties")
-    data_freshness = EnumField()
+    data_freshness = EnumField(pb_type=RTLevel)

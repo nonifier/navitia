@@ -1,28 +1,28 @@
 /* Copyright © 2001-2015, Canal TP and/or its affiliates. All rights reserved.
-  
+
 This file is part of Navitia,
     the software to build cool stuff with public transport.
- 
+
 Hope you'll enjoy and contribute to this project,
     powered by Canal TP (www.canaltp.fr).
 Help us simplify mobility and open public transport:
     a non ending quest to the responsive locomotion way of traveling!
-  
+
 LICENCE: This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as published by
 the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
-   
+
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 GNU Affero General Public License for more details.
-   
+
 You should have received a copy of the GNU Affero General Public License
 along with this program. If not, see <http://www.gnu.org/licenses/>.
-  
+
 Stay tuned using
-twitter @navitia 
+twitter @navitia
 IRC #navitia on freenode
 https://groups.google.com/d/forum/navitia
 www.navitia.io
@@ -33,6 +33,7 @@ www.navitia.io
 #include <boost/test/unit_test.hpp>
 #include <boost/algorithm/string.hpp>
 #include "utils/logger.h"
+#include "utils/functions.h"
 #include "type/data.h"
 #include "type/pt_data.h"
 #include "type/meta_data.h"
@@ -182,9 +183,14 @@ BOOST_FIXTURE_TEST_CASE(fusio_test, ArgsFixture) {
     const auto input_file = input_file_paths.at("ntfs_file");
     nt::Data data;
 
-    const auto res = data.load(input_file);
-
-    BOOST_REQUIRE(res);
+    bool failed = false;
+    try {
+        data.load_nav(input_file);
+    } catch(const navitia::data::data_loading_error&) {
+        failed = true;
+    }
+    data.build_raptor();
+    BOOST_REQUIRE_EQUAL(failed, false);
 
     check_ntfs(data);
 
@@ -196,9 +202,15 @@ BOOST_FIXTURE_TEST_CASE(fusio_test, ArgsFixture) {
 BOOST_FIXTURE_TEST_CASE(gtfs_test, ArgsFixture) {
     const auto input_file = input_file_paths.at("gtfs_google_example_file");
     navitia::type::Data data;
-    const auto res = data.load(input_file);
 
-    BOOST_REQUIRE(res);
+    bool failed = false;
+    try {
+        data.load_nav(input_file);
+    } catch(const navitia::data::data_loading_error&) {
+        failed = true;
+    }
+    data.build_raptor();
+    BOOST_REQUIRE_EQUAL(failed, false);
 
     const auto& pt_data = *data.pt_data;
 
@@ -345,9 +357,14 @@ BOOST_FIXTURE_TEST_CASE(ntfs_v5_test, ArgsFixture) {
     const auto input_file = input_file_paths.at("ntfs_v5_file");
     nt::Data data;
 
-    const auto res = data.load(input_file);
-
-    BOOST_REQUIRE(res);
+    bool failed = false;
+    try {
+        data.load_nav(input_file);
+    } catch(const navitia::data::data_loading_error&) {
+        failed = true;
+    }
+    data.build_raptor();
+    BOOST_REQUIRE_EQUAL(failed, false);
 
     BOOST_REQUIRE_EQUAL(data.pt_data->lines.size(), 4);
     BOOST_REQUIRE_EQUAL(data.pt_data->routes.size(), 4);
@@ -361,7 +378,9 @@ BOOST_FIXTURE_TEST_CASE(ntfs_v5_test, ArgsFixture) {
             boost::gregorian::date_period("20150826"_d, "20150926"_d));
     BOOST_CHECK_EQUAL(data.pt_data->datasets[0]->realtime_level == nt::RTLevel::Base, true);
     BOOST_CHECK_EQUAL(data.pt_data->datasets[0]->system, "obiti");
-    BOOST_CHECK_EQUAL(data.pt_data->vehicle_journeys[0]->dataset->uri, "d1");
+    
+    // accepted side-effect (no link) as ntfs_v5 fixture does not contain datasets.txt, which is now required
+    BOOST_CHECK(data.pt_data->vehicle_journeys[0]->dataset == nullptr); 
 
     BOOST_REQUIRE_EQUAL(data.pt_data->networks.size(), 1);
     BOOST_CHECK_EQUAL(data.pt_data->codes.get_codes(data.pt_data->networks[0]),
@@ -371,4 +390,80 @@ BOOST_FIXTURE_TEST_CASE(ntfs_v5_test, ArgsFixture) {
                       (nt::CodeContainer::Codes{{"external_code", {"A"}}, {"source", {"A", "Ahah", "Aïe"}}}));
 
     check_ntfs(data);
+}
+
+BOOST_FIXTURE_TEST_CASE(osm_pois_id_should_match_mimir_naming, ArgsFixture)
+{
+    navitia::type::Data data;
+    BOOST_REQUIRE_NO_THROW(data.load_nav(input_file_paths.at("osm_and_gtfs_file")););
+    data.build_raptor();
+
+    const auto & pois = data.geo_ref->pois;
+    BOOST_REQUIRE_GT(pois.size(), 0);
+
+    BOOST_CHECK(navitia::contains_if(
+            pois, [&](const navitia::georef::POI* p) {return p->uri == "poi:osm:way:551462554";}
+    ));
+    BOOST_CHECK(navitia::contains_if(
+            pois, [&](const navitia::georef::POI* p) {return p->uri == "poi:osm:node:5414687331";}
+    ));
+}
+
+BOOST_FIXTURE_TEST_CASE(poi2ed_pois_uri_should_match_mimir_naming, ArgsFixture) 
+{
+    navitia::type::Data data;
+    BOOST_REQUIRE_NO_THROW(data.load_nav(input_file_paths.at("poi_file")););
+    data.build_raptor();
+
+    const auto & pois = data.geo_ref->pois;
+    BOOST_REQUIRE_GT(pois.size(), 0);
+
+    BOOST_CHECK(navitia::contains_if(
+            pois, [&](const navitia::georef::POI* p) {return p->uri == "poi:ADM44_100";}
+    ));
+    BOOST_CHECK(navitia::contains_if(
+            pois, [&](const navitia::georef::POI* p) {return p->uri == "poi:CULT44_30021";}
+    ));
+    BOOST_CHECK(navitia::contains_if(
+            pois, [&](const navitia::georef::POI* p) {return p->uri == "poi:PAIHABIT0000000028850973";}
+    ));
+}
+
+BOOST_FIXTURE_TEST_CASE(ntfs_dst_test, ArgsFixture) {
+    const auto input_file = input_file_paths.at("ntfs_dst_file");
+    nt::Data data;
+
+    bool failed = false;
+    try {
+        data.load_nav(input_file);
+    } catch(const navitia::data::data_loading_error&) {
+        failed = true;
+    }
+    data.build_raptor();
+    BOOST_REQUIRE_EQUAL(failed, false);
+
+    BOOST_CHECK_EQUAL(data.pt_data->lines.size(), 1);
+    BOOST_CHECK_EQUAL(data.pt_data->routes.size(), 1);
+
+    BOOST_REQUIRE_EQUAL(data.pt_data->datasets.size(), 1);
+    BOOST_REQUIRE_EQUAL(data.pt_data->contributors.size(), 1);
+    BOOST_REQUIRE_EQUAL(data.pt_data->contributors[0], data.pt_data->datasets[0]->contributor);
+    BOOST_CHECK_EQUAL(data.pt_data->datasets[0]->desc, "centre-sncf");
+    BOOST_CHECK_EQUAL(data.pt_data->datasets[0]->uri, "SCF:23");
+    BOOST_CHECK_EQUAL(data.pt_data->datasets[0]->validation_period,
+            boost::gregorian::date_period("20180319"_d, "20180617"_d));
+    BOOST_CHECK_EQUAL(data.pt_data->datasets[0]->realtime_level == nt::RTLevel::Base, true);
+    BOOST_CHECK_EQUAL(data.pt_data->datasets[0]->system, "ChouetteV2");
+    BOOST_REQUIRE_EQUAL(data.pt_data->vehicle_journeys.size(), 2);
+    BOOST_CHECK_EQUAL(data.pt_data->vehicle_journeys[0]->dataset->uri, "SCF:23");
+
+    const auto* vj_dst1 = data.pt_data->vehicle_journeys_map.at("vehicle_journey:SCF:OCESN010410R01001-1_dst_1");
+    BOOST_CHECK_EQUAL(vj_dst1->uri, "vehicle_journey:SCF:OCESN010410R01001-1_dst_1");
+
+    BOOST_REQUIRE_EQUAL(vj_dst1->stop_time_list.size(), 12);
+
+    // we also check the other AB1 split for the summer DST
+    const auto* vj_dst2 = data.pt_data->vehicle_journeys_map.at("vehicle_journey:SCF:OCESN010410R01001-1_dst_2");
+    // they should have the same meta vj
+    BOOST_CHECK_EQUAL(vj_dst2->meta_vj, vj_dst1->meta_vj);
 }

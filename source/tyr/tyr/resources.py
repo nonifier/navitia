@@ -29,6 +29,7 @@
 # https://groups.google.com/d/forum/navitia
 # www.navitia.io
 
+from __future__ import absolute_import, print_function, division
 from flask import current_app, url_for, request
 import flask_restful
 from flask_restful import marshal_with, marshal, reqparse, inputs, abort
@@ -36,23 +37,22 @@ from flask_restful import marshal_with, marshal, reqparse, inputs, abort
 import sqlalchemy
 from validate_email import validate_email
 from datetime import datetime
-from tyr_user_event import TyrUserEvent
-from tyr_end_point_event import EndPointEventMessage, TyrEventsRabbitMq
+from tyr.tyr_user_event import TyrUserEvent
+from tyr.tyr_end_point_event import EndPointEventMessage, TyrEventsRabbitMq
 from tyr.helper import load_instance_config
 import logging
 import os
 import shutil
 import json
 from jsonschema import validate, ValidationError
-from formats import poi_type_conf_format, parse_error
+from tyr.formats import poi_type_conf_format, parse_error
 from navitiacommon.default_traveler_profile_params import default_traveler_profile_params, acceptable_traveler_types
 from navitiacommon import models, utils
 from navitiacommon.models import db
 from navitiacommon.parser_args_type import CoordFormat, PositiveFloat, BooleanType, OptionValue, geojson_argument
 from functools import wraps
-from validations import datetime_format
-from tasks import create_autocomplete_depot, remove_autocomplete_depot
-from tyr.tasks import import_autocomplete
+from tyr.validations import datetime_format
+from tyr.tasks import create_autocomplete_depot, remove_autocomplete_depot, import_autocomplete
 from tyr.helper import get_instance_logger, save_in_tmp
 from tyr.fields import *
 
@@ -99,7 +99,7 @@ class Job(flask_restful.Resource):
         shutil.move(full_file_name + ".tmp", full_file_name)
 
         return {'message': 'OK'}, 200
-        
+
 
 class PoiType(flask_restful.Resource):
     def get(self, instance_name):
@@ -139,7 +139,7 @@ class PoiType(flask_restful.Resource):
                     abort(400, status="error",
                           message='Using an undefined POI type id ({}) forbidden in rules'.format(pt_id))
 
-            poi_types = models.PoiTypeJson(json.dumps(poi_types_json, ensure_ascii=False).encode('utf-8'), instance)
+            poi_types = models.PoiTypeJson(json.dumps(poi_types_json, ensure_ascii=False).encode('utf-8', 'backslashreplace'), instance)
             db.session.add(poi_types)
             db.session.commit()
         except Exception:
@@ -199,7 +199,6 @@ class Instance(flask_restful.Resource):
                                                                               'keolis',
                                                                               'destineo',
                                                                               'new_default',
-                                                                              'stif',
                                                                               'distributed'],
                 location=('json', 'values'), default=instance.scenario)
         parser.add_argument('journey_order', type=str, case_sensitive=False,
@@ -295,6 +294,37 @@ class Instance(flask_restful.Resource):
         parser.add_argument('import_stops_in_mimir', type=inputs.boolean,
                             help='import stops in global autocomplete',
                             location=('json', 'values'), default=instance.import_stops_in_mimir)
+        parser.add_argument('import_ntfs_in_mimir', type=inputs.boolean,
+                            help='import ntfs data in global autocomplete',
+                            location=('json', 'values'), default=instance.import_ntfs_in_mimir)
+        parser.add_argument('min_nb_journeys', type=int,
+                            help='minimum number of different suggested journeys', location=('json', 'values'),
+                            default=instance.min_nb_journeys)
+        parser.add_argument('max_nb_journeys', type=int, required=False,
+                            help='maximum number of different suggested journeys', location=('json', 'values'))
+        parser.add_argument('min_journeys_calls', type=int,
+                            help='minimum number of calls to kraken', location=('json', 'values'),
+                            default=instance.min_journeys_calls)
+        parser.add_argument('max_successive_physical_mode', type=int, required=False,
+                            help='maximum number of successive physical modes in an itinerary',
+                            location=('json', 'values'))
+        parser.add_argument('final_line_filter', type=inputs.boolean,
+                            help='filter on vj using same lines and same stops', location=('json', 'values'),
+                            default=instance.final_line_filter)
+        parser.add_argument('max_extra_second_pass', type=int,
+                            help='maximum number of second pass to get more itineraries',
+                            location=('json', 'values'), default=instance.max_extra_second_pass)
+
+        parser.add_argument('max_nb_crowfly_by_mode', type=dict,
+                            help='maximum nb of crowfly, used before computing the fallback matrix,'
+                                 ' in distributed scenario',
+                            location=('json', 'values'), default=instance.max_nb_crowfly_by_mode)
+
+        parser.add_argument('autocomplete_backend', type=str, case_sensitive=False,
+                help='the name of the backend used by jormungandr for the autocompletion',
+                choices=['kraken', 'bragi'],
+                location=('json', 'values'), default=instance.autocomplete_backend)
+
         args = parser.parse_args()
 
         try:
@@ -334,7 +364,21 @@ class Instance(flask_restful.Resource):
                                        'full_sn_geometries',
                                        'is_free',
                                        'is_open_data',
-                                       'import_stops_in_mimir'])
+                                       'import_stops_in_mimir',
+                                       'import_ntfs_in_mimir',
+                                       'min_nb_journeys',
+                                       'max_nb_journeys',
+                                       'min_journeys_calls',
+                                       'max_successive_physical_mode',
+                                       'final_line_filter',
+                                       'max_extra_second_pass',
+                                       'autocomplete_backend',
+                                    ])
+            max_nb_crowfly_by_mode = args.get('max_nb_crowfly_by_mode')
+            import copy
+            new = copy.deepcopy(instance.max_nb_crowfly_by_mode)
+            new.update(max_nb_crowfly_by_mode)
+            instance.max_nb_crowfly_by_mode = new
             db.session.commit()
         except Exception:
             logging.exception("fail")
@@ -1091,13 +1135,39 @@ class AutocompleteUpdateData(flask_restful.Resource):
         return marshal({'job': job}, one_job_fields), 200
 
 
-class MigrateFromPoiToOsm(flask_restful.Resource):
-    def delete(self, instance_name):
+class DeleteDataset(flask_restful.Resource):
+
+    def delete(self, instance_name, type):
 
         instance = models.Instance.get_by_name(instance_name)
         if instance:
-            instance.delete_dataset()
-            return_msg = 'All POI datasets deleted for instance {}'.format(instance_name)
+            res = instance.delete_dataset(_type=type)
+            if res:
+                return_msg = 'All {} datasets deleted for instance {}'.format(type, instance_name)
+            else:
+                return_msg = 'No {} dataset to be deleted for instance {}'.format(type, instance_name)
+            return_status = 200
+        else:
+            return_msg = "No instance found for : {}".format(instance_name)
+            return_status = 404
+
+        return {'action': return_msg}, return_status
+
+
+class MigrateFromPoiToOsm(flask_restful.Resource):
+
+    def put(self, instance_name):
+        instance = models.Instance.get_by_name(instance_name)
+        if instance:
+            instance_conf = load_instance_config(instance_name)
+            connection_string = "postgres://{u}:{pw}@{h}:{port}/{db}"\
+                .format(u=instance_conf.pg_username, pw=instance_conf.pg_password,
+                        h=instance_conf.pg_host, db=instance_conf.pg_dbname, port=instance_conf.pg_port)
+            engine = sqlalchemy.create_engine(connection_string)
+
+            engine.execute("""UPDATE navitia.parameters SET parse_pois_from_osm = TRUE""").close()
+
+            return_msg = 'Parameter parse_pois_from_osm activated'
             return_status = 200
         else:
             return_msg = "No instance found for : {}".format(instance_name)

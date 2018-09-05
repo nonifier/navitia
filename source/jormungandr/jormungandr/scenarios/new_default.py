@@ -28,22 +28,23 @@
 # www.navitia.io
 
 from __future__ import absolute_import, print_function, unicode_literals, division
+
 from copy import deepcopy
 import itertools
 import logging
-from flask.ext.restful import abort
+from flask_restful import abort
 from flask import g
 from jormungandr.scenarios import simple, journey_filter, helpers
 from jormungandr.scenarios.ridesharing.ridesharing_helper import decorate_journeys
 from jormungandr.scenarios.utils import journey_sorter, change_ids, updated_request_with_default, \
-    get_or_default, fill_uris, gen_all_combin, get_pseudo_duration, mode_weight
+    get_or_default, fill_uris, gen_all_combin, get_pseudo_duration, mode_weight, switch_back_to_ridesharing, nCr
 from navitiacommon import type_pb2, response_pb2, request_pb2
 from jormungandr.scenarios.qualifier import min_from_criteria, arrival_crit, departure_crit, \
     duration_crit, transfers_crit, nonTC_crit, trip_carac, has_no_car, has_car, has_pt, \
     has_no_bike, has_bike, has_no_bss, has_bss, non_pt_journey, has_walk, and_filters
 import numpy as np
 import collections
-from jormungandr.utils import date_to_timestamp, PeriodExtremity, copy_flask_request_context, copy_context_in_greenlet_stack
+from jormungandr.utils import date_to_timestamp, copy_flask_request_context, copy_context_in_greenlet_stack
 from jormungandr.scenarios.simple import get_pb_data_freshness
 import gevent, gevent.pool
 import flask
@@ -168,6 +169,20 @@ def create_pb_request(requested_type, request, dep_mode, arr_mode):
 
     req.journeys.bike_in_pt = (dep_mode == 'bike') and (arr_mode == 'bike')
 
+    if request["free_radius_from"]:
+        req.journeys.free_radius_from = request["free_radius_from"]
+    if request["free_radius_to"]:
+        req.journeys.free_radius_to = request["free_radius_to"]
+
+    if request["min_nb_journeys"]:
+        req.journeys.min_nb_journeys = request["min_nb_journeys"]
+
+    req.journeys.night_bus_filter_max_factor = request['_night_bus_filter_max_factor']
+    req.journeys.night_bus_filter_base_factor = request['_night_bus_filter_base_factor']
+
+    if request['timeframe_duration']:
+        req.journeys.timeframe_duration = int(request['timeframe_duration'])
+
     return req
 
 
@@ -196,6 +211,7 @@ def compute_car_co2_emission(pb_resp, api_request, instance):
         # Assign car_co2_emission into the resp, these value will be exposed in the final result
         pb_resp.car_co2_emission.value = car.co2_emission.value
         pb_resp.car_co2_emission.unit = car.co2_emission.unit
+
 
 def tag_ecologic(resp):
     # if there is no available car_co2_emission in resp, no tag will be assigned
@@ -230,12 +246,14 @@ def _is_bike_section(s):
     return ((s.type == response_pb2.CROW_FLY or s.type == response_pb2.STREET_NETWORK) and
             s.street_network.mode == response_pb2.Bike)
 
+
 def _is_pt_bike_accepted_section(s):
     bike_ok = type_pb2.hasEquipments.has_bike_accepted
     return (s.type == response_pb2.PUBLIC_TRANSPORT and
             bike_ok in s.pt_display_informations.has_equipments.has_equipments and
             bike_ok in s.origin.stop_point.has_equipments.has_equipments and
             bike_ok in s.destination.stop_point.has_equipments.has_equipments)
+
 
 def _is_bike_in_pt_journey(j):
     bike_indifferent = [response_pb2.boarding,
@@ -249,11 +267,12 @@ def _is_bike_in_pt_journey(j):
                or s.type in bike_indifferent
                    for s in j.sections)
 
+
 def _tag_bike_in_pt(responses):
-    '''
+    """
     we tag as 'bike _in_pt' journeys that are using bike as start AND end fallback AND
     that allow carrying bike in transport (and journey has to include PT)
-    '''
+    """
     for j in itertools.chain.from_iterable(r.journeys for r in responses):
         if _is_bike_in_pt_journey(j):
             j.tags.extend(['bike_in_pt'])
@@ -274,12 +293,12 @@ def _get_section_id(section):
     return section.uris.line, street_network_mode, section.type
 
 
-def _build_candidate_pool_and_sections_set(resp):
+def _build_candidate_pool_and_sections_set(journeys):
     sections_set = set()
     candidates_pool = list()
     idx_of_jrny_must_keep = list()
 
-    for (i, jrny) in enumerate(resp.journeys):
+    for (i, jrny) in enumerate(journeys):
         if jrny.type in JOURNEY_TYPES_TO_RETAIN:
             idx_of_jrny_must_keep.append(i)
         sections_set |= set([_get_section_id(s) for s in jrny.sections if s.type in SECTION_TYPES_TO_RETAIN])
@@ -326,8 +345,16 @@ def _get_sorted_solutions_indexes(selected_sections_matrix, nb_journeys_to_find,
      [0,2]
      [1,2]]
     """
-    selected_journeys_matrix = np.array(list(gen_all_combin(selected_sections_matrix.shape[0], nb_journeys_to_find)))
+    # Allocation of memory
+    shape = (nCr(selected_sections_matrix.shape[0], nb_journeys_to_find), nb_journeys_to_find)
+    selected_journeys_matrix = np.empty(shape, dtype=np.uint16)
 
+    def f((i, c)):
+        selected_journeys_matrix[i] = c
+
+    # replace line by line
+    from itertools import izip
+    map(f, izip(xrange(shape[0]), gen_all_combin(selected_sections_matrix.shape[0], nb_journeys_to_find)))
     """
     We should cut out those combinations that don't contain must-keep journeys
     """
@@ -385,10 +412,10 @@ def _get_sorted_solutions_indexes(selected_sections_matrix, nb_journeys_to_find,
 def culling_journeys(resp, request):
     """
     Remove some journeys if there are too many of them to have max_nb_journeys journeys.
-    
+
     resp.journeys should be sorted before this function is called
 
-    The goal is to choose a bunch of journeys(max_nv_journeys) that covers as many as possible sections
+    The goal is to choose a bunch of journeys(max_nb_journeys) that covers as many as possible sections
     but have as few as possible sum(sections)
 
     Ex:
@@ -398,8 +425,10 @@ def culling_journeys(resp, request):
     Journey_1 : Line 1 -> Line 8 -> Bus 172
     Journey_2 : Line 14 -> Line 6 -> Bus 165
     Journey_3 : Line 14 -> Line 6 ->Line 8 -> Bus 165
+    Journey_4 : Line 1 -> Line 8 -> Bus 172 (this may happen when timeframe_duration or same_journey_schedule is used)
 
-    W'd like to choose two journeys. The algo will return Journey_1 and Journey2.
+    We'd like to choose two journeys. The algo will return Journey_1 and Journey2.
+    Note that Journey_4 is similar to the Journey_1 and will be ignored when max_nb_journeys<=3
 
     Because
     With Journey_1 and Journey_3, they cover all lines but have 5 transfers in all
@@ -411,9 +440,43 @@ def culling_journeys(resp, request):
     """
     logger = logging.getLogger(__name__)
 
-    if not request["max_nb_journeys"] or request["max_nb_journeys"] >= len(resp.journeys):
+    max_nb_journeys = request["max_nb_journeys"]
+    if max_nb_journeys is None or max_nb_journeys >= len(resp.journeys):
         logger.debug('No need to cull journeys')
         return
+
+    """
+    Why aggregating journeys before culling journeys?
+    We have encountered severe slowness when combining max_nb_journeys(ex: 20) and a big timeframe_duration(ex: 86400s). 
+    It turned out that, with this configuration, kraken will return a lot of journeys(ex: 100 journeys) and the 
+    algorithm was trying to figure out the best solution over 5.35E+20 possible combinations
+    ( 5.35E+20=Combination(100,20) )!!
+     
+    aggregated_journeys will group journeys that are similar('similar' is defined by 'Journeys that have the same sequence
+    of sections are similar'), which reduces the number of possible combinations considerably 
+    """
+    aggregated_journeys, remaining_journeys = aggregate_journeys(resp.journeys)
+    logger.debug('aggregated_journeys: {} remaining_journeys: {}'
+                 .format(len(aggregated_journeys), len(remaining_journeys)))
+    is_debug = request.get('debug')
+
+    if max_nb_journeys >= len(aggregated_journeys):
+        """
+        In this case, we return all aggregated_journeys plus earliest/latest journeys in remaining journeys
+        """
+        for j in remaining_journeys[max(0, max_nb_journeys - len(aggregated_journeys)):]:
+            journey_filter.mark_as_dead(j, is_debug, 'max_nb_journeys >= len(aggregated_journeys), '
+                                                     'Filtered by max_nb_journeys')
+        journey_filter.delete_journeys((resp,), request)
+        return
+
+    """
+    When max_nb_journeys < len(aggregated_journeys), we first remove all remaining journeys from final response because
+    those journeys already have a similar journey in aggregated_journeys
+    """
+    for j in remaining_journeys:
+        journey_filter.mark_as_dead(j, is_debug, 'Filtered by max_nb_journeys, '
+                                                 'max_nb_journeys < len(aggregated_journeys)')
 
     logger.debug('Trying to culling the journeys')
 
@@ -429,11 +492,12 @@ def culling_journeys(resp, request):
     The candidate pool will be like [Journey_2, Journey_3]
     The sections set will be like set([Line 14, Line 6, Line 8, Bus 165])
     """
-    candidates_pool, sections_set, idx_of_jrnys_must_keep = _build_candidate_pool_and_sections_set(resp)
+    candidates_pool, sections_set, idx_of_jrnys_must_keep = _build_candidate_pool_and_sections_set(aggregated_journeys)
 
     nb_journeys_must_have = len(idx_of_jrnys_must_keep)
     logger.debug("There are {0} journeys we must keep".format(nb_journeys_must_have))
-    if (request["max_nb_journeys"] - nb_journeys_must_have) <= 0:
+
+    if max_nb_journeys <= nb_journeys_must_have:
         # At this point, max_nb_journeys is smaller than nb_journeys_must_have, we have to make choices
 
         def _inverse_selection(d, indexes):
@@ -442,9 +506,9 @@ def culling_journeys(resp, request):
 
         # Here we mark all journeys as dead that are not must-have
         for jrny in _inverse_selection(candidates_pool, idx_of_jrnys_must_keep):
-             journey_filter.mark_as_dead(jrny, 'Filtered by max_nb_journeys')
+             journey_filter.mark_as_dead(jrny, is_debug, 'Filtered by max_nb_journeys')
 
-        if request["max_nb_journeys"] == nb_journeys_must_have:
+        if max_nb_journeys == nb_journeys_must_have:
             logger.debug('max_nb_journeys equals to nb_journeys_must_have')
             journey_filter.delete_journeys((resp,), request)
             return
@@ -462,14 +526,13 @@ def culling_journeys(resp, request):
         for t in JOURNEY_TYPES_TO_RETAIN:
             sorted_by_type_journeys.extend(list_dict.get(t, []))
 
-        for jrny in sorted_by_type_journeys[request["max_nb_journeys"]:]:
-            journey_filter.mark_as_dead(jrny, 'Filtered by max_nb_journeys')
+        for jrny in sorted_by_type_journeys[max_nb_journeys:]:
+            journey_filter.mark_as_dead(jrny, is_debug, 'Filtered by max_nb_journeys')
 
         journey_filter.delete_journeys((resp,), request)
         return
 
-    nb_journeys_to_find = request["max_nb_journeys"]
-    logger.debug('Trying to find {0} journeys from {1}'.format(nb_journeys_to_find,
+    logger.debug('Trying to find {0} journeys from {1}'.format(max_nb_journeys,
                                                                candidates_pool.shape[0]))
 
     """
@@ -488,7 +551,7 @@ def culling_journeys(resp, request):
     selected_sections_matrix = _build_selected_sections_matrix(sections_set, candidates_pool)
 
     best_indexes, selection_matrix = _get_sorted_solutions_indexes(selected_sections_matrix,
-                                                                   nb_journeys_to_find,
+                                                                   max_nb_journeys,
                                                                    idx_of_jrnys_must_keep)
 
     logger.debug("Nb best solutions: {0}".format(best_indexes.shape[0]))
@@ -512,7 +575,7 @@ def culling_journeys(resp, request):
 
     logger.debug('Removing non selected journeys')
     for jrny in candidates_pool[np.where(selection_matrix[the_best_index, :] == 0)]:
-        journey_filter.mark_as_dead(jrny, 'Filtered by max_nb_journeys')
+        journey_filter.mark_as_dead(jrny, is_debug, 'Filtered by max_nb_journeys')
 
     journey_filter.delete_journeys((resp,), request)
 
@@ -547,34 +610,6 @@ def _tag_by_mode(responses):
         for j in r.journeys:
             _tag_journey_by_mode(j)
 
-
-def _is_fake_car_section(section):
-    """
-    This function test if the section is a fake car section
-    """
-    return (section.type == response_pb2.STREET_NETWORK or section.type == response_pb2.CROW_FLY) and \
-            section.street_network.mode == response_pb2.Car
-
-
-def _switch_back_to_ridesharing(response, is_first_section):
-    """
-    
-    :param response: a pb_response returned by kraken
-    :param is_first_section: a bool indicates that if the first_section or last_section is a ridesharing section
-                             True if the first_section is, False if the last_section is
-    :return: 
-    """
-    for journey in response.journeys:
-        if len(journey.sections) == 0:
-            continue
-        section_idx = 0 if is_first_section else -1
-        section = journey.sections[section_idx]
-        if _is_fake_car_section(section):
-            section.street_network.mode = response_pb2.Ridesharing
-            journey.durations.ridesharing += section.duration
-            journey.durations.car -= section.duration
-            journey.distances.ridesharing += section.length
-            journey.distances.car -= section.length
 
 def nb_journeys(responses):
     return sum(1 for r in responses for j in r.journeys if not journey_filter.to_be_deleted(j))
@@ -694,18 +729,18 @@ def type_journeys(resp, req):
         best.type = "best"
 
 
-def merge_responses(responses):
+def merge_responses(responses, debug):
     """
     Merge all responses in one protobuf response
     """
     merged_response = response_pb2.Response()
 
-    for r in responses:
+    for response_index, r in enumerate(responses):
         if r.HasField(str('error')) or not r.journeys:
             # we do not take responses with error, but if all responses have errors, we'll aggregate them
             continue
 
-        change_ids(r, len(merged_response.journeys))
+        change_ids(r, response_index)
 
         # we don't want to add a journey already there
         merged_response.journeys.extend(r.journeys)
@@ -713,12 +748,19 @@ def merge_responses(responses):
         # we have to add the additional fares too
         # if at least one journey has the ticket we add it
         tickets_to_add = set(t for j in r.journeys for t in j.fare.ticket_id)
-        merged_response.tickets.extend([t for t in r.tickets if t.id in tickets_to_add])
+        merged_response.tickets.extend((t for t in r.tickets if t.id in tickets_to_add))
 
         initial_feed_publishers = {}
         for fp in merged_response.feed_publishers:
             initial_feed_publishers[fp.id] = fp
-        merged_response.feed_publishers.extend([fp for fp in r.feed_publishers if fp.id not in initial_feed_publishers])
+
+        # Add feed publishers from the qualified journeys only
+        # Note : For BSS, it can happen that one journey in the response has returned a walking fallback.
+        # If all other journeys in the response are to delete, the feed publisher will still be added
+        # TODO: link feed publisher to a journey instead of a response with several journeys
+        merged_response.feed_publishers.extend(fp for fp in r.feed_publishers
+                                               if fp.id not in initial_feed_publishers
+                                               and (debug or all('to_delete' not in j.tags for j in r.journeys)))
 
         # handle impacts
         for i in r.impacts:
@@ -767,6 +809,34 @@ def get_kraken_id(entrypoint_detail):
     return '{};{}'.format(coord['lon'], coord['lat'])
 
 
+def aggregate_journeys(journeys):
+    """
+    when building candidates_pool, we should take into count the similarity of journeys, which means, we add a journey
+    into the pool only when there are no other "similar" journey already existing in the pool.
+
+    the similarity is defined by a tuple of journeys sections.
+    """
+    added_sections_ids = set()
+    aggregated_journeys = list()
+    remaining_journeys = list()
+
+    # we pick out all journeys that must be kept:
+    for j in (j for j in journeys if j.type in JOURNEY_TYPES_TO_RETAIN):
+        section_id = tuple(_get_section_id(s) for s in j.sections if s.type in SECTION_TYPES_TO_RETAIN)
+        aggregated_journeys.append(j)
+        added_sections_ids.add(section_id)
+
+    for j in (j for j in journeys if j.type not in JOURNEY_TYPES_TO_RETAIN):
+        section_id = tuple(_get_section_id(s) for s in j.sections if s.type in SECTION_TYPES_TO_RETAIN)
+
+        if section_id in added_sections_ids:
+            remaining_journeys.append(j)
+        else:
+            aggregated_journeys.append(j)
+            added_sections_ids.add(section_id)
+    return aggregated_journeys, remaining_journeys
+
+
 class Scenario(simple.Scenario):
     """
     TODO: a bit of explanation about the new scenario
@@ -778,6 +848,9 @@ class Scenario(simple.Scenario):
 
     def fill_journeys(self, request_type, api_request, instance):
         logger = logging.getLogger(__name__)
+
+        if api_request['max_nb_journeys'] is not None and api_request['max_nb_journeys'] <= 0:
+            return response_pb2.Response()
 
         # sometimes we need to change the entrypoint id (eg if the id is from another autocomplete system)
         origin_detail = self.get_entrypoint_detail(api_request.get('origin'), instance)
@@ -797,40 +870,110 @@ class Scenario(simple.Scenario):
         if not api_request['destination_mode']:
             api_request['destination_mode'] = ['walking']
 
+        # Return the possible couples combinations (origin_mode and destination_mode)
         krakens_call = get_kraken_calls(api_request)
 
+        # We need the original request (api_request) for filtering, but request
+        # is modified by create_next_kraken_request function.
         request = deepcopy(api_request)
-        min_asked_journeys = get_or_default(request, 'min_nb_journeys', 1)
-        min_journeys_calls = get_or_default(request, '_min_journeys_calls', 1)
+
+        # min_nb_journeys option
+        if request['min_nb_journeys']:
+            min_nb_journeys = request['min_nb_journeys']
+        else:
+            min_nb_journeys = 1
 
         responses = []
         nb_try = 0
+        nb_qualified_journeys = 0
+        nb_previously_qualified_journeys = 0
+        last_chance_retry = False
+
+        min_journeys_calls = request.get('_min_journeys_calls', 1)
+        max_journeys_calls = app.config.get('MAX_JOURNEYS_CALLS', 20)
+        max_nb_calls = min(min_nb_journeys, max_journeys_calls)
+
         while request is not None and \
-                ((nb_journeys(responses) < min_asked_journeys and nb_try < min_asked_journeys)
+                ((nb_qualified_journeys < min_nb_journeys and nb_try < max_nb_calls)\
                  or nb_try < min_journeys_calls):
+
             nb_try = nb_try + 1
 
-            tmp_resp = self.call_kraken(request_type, request, instance, krakens_call)
-            _tag_by_mode(tmp_resp)
-            _tag_direct_path(tmp_resp)
-            _tag_bike_in_pt(tmp_resp)
-            journey_filter._filter_too_long_journeys(tmp_resp, request)
-            responses.extend(tmp_resp)  # we keep the error for building the response
-            if nb_journeys(tmp_resp) == 0:
+            # The parameter 'min_nb_journeys' isn't used in the following cases:
+            # - If there's more than one single origin_mode and destination_mode couple.
+            # - If there was no journey qualified in the previous response, the last chance request is limited
+            if len(krakens_call) > 1 or last_chance_retry:
+                request['min_nb_journeys'] = 0
+            elif api_request['min_nb_journeys']:
+                min_nb_journeys_left = min_nb_journeys - nb_qualified_journeys
+                request['min_nb_journeys'] = max(0, min_nb_journeys_left)
+
+            new_resp = self.call_kraken(request_type, request, instance, krakens_call)
+            _tag_by_mode(new_resp)
+            _tag_direct_path(new_resp)
+            _tag_bike_in_pt(new_resp)
+
+            if nb_journeys(new_resp) == 0:
                 # no new journeys found, we stop
+                # we still append the new_resp because there are journeys that a tagged as dead probably
+                responses.extend(new_resp)
                 break
 
-            request = self.create_next_kraken_request(request, tmp_resp)
+            request = self.create_next_kraken_request(request, new_resp)
 
-            # we filter unwanted journeys by side effects
-            journey_filter.filter_journeys(responses, instance, api_request)
+            # we filter unwanted journeys in the new response
+            # note that filter_journeys returns a generator which will be evaluated later
+            filtered_new_resp = journey_filter.filter_journeys(new_resp, instance, api_request)
 
-            #We allow one more call to kraken if there is no valid journey.
-            if nb_journeys(responses) == 0:
+            # duplicate the generator
+            tmp1, tmp2 = itertools.tee(filtered_new_resp)
+            qualified_journeys = journey_filter.get_qualified_journeys(responses)
+
+            # now we want to filter similar journeys in the new response which is done in 2 steps
+            # In the first step, we compare journeys from the new response only , 2 by 2
+            # hopefully, it may lead to some early return for the second step to improve the perf a little
+            # In the second step, we compare the journeys from the new response with those that have been qualified
+            # already in the former iterations
+            # note that the journey_pairs_pool is a list of 2-element tuple of journeys
+            journey_pairs_pool = itertools.chain(
+                # First step: compare journeys from the new response only
+                itertools.combinations(tmp1, 2),
+                # Second step:
+                # we use the itertools.product to create combinations between qualified journeys and new journeys
+                # Ex:
+                # new_journeys = [n_1, n_2]
+                # qualified_journeys = [q_1, q_2, q_3]
+                # itertools.product(new_journeys, qualified_journeys) gives combinations as follows:
+                # (n_1, q_1), (n_1, q_2),(n_1, q_3),(n_2, q_1),(n_2, q_2),(n_2, q_3)
+                itertools.product(tmp2, qualified_journeys),
+            )
+
+            journey_filter.filter_similar_vj_journeys(journey_pairs_pool, api_request)
+
+            responses.extend(new_resp)  # we keep the error for building the response
+
+            nb_qualified_journeys = nb_journeys(responses)
+
+            if api_request['timeframe_duration']:
+                # If timeframe_duration is active, it is useless to recall Kraken,
+                # it has already sent back what he could
+                break
+
+            if nb_previously_qualified_journeys == nb_qualified_journeys:
+                # If there is no additional qualified journey in the kraken response,
+                # another request is sent to try to find more journeys, just in case...
+                if last_chance_retry:
+                    break
+                last_chance_retry = True
+            nb_previously_qualified_journeys = nb_qualified_journeys
+
+            if nb_qualified_journeys == 0:
                 min_journeys_calls = max(min_journeys_calls, 2)
 
-        journey_filter.final_filter_journeys(responses, instance, api_request)
-        pb_resp = merge_responses(responses)
+        logger.debug('nb of call kraken: %i', nb_try)
+
+        journey_filter.apply_final_journey_filters(responses, instance, api_request)
+        pb_resp = merge_responses(responses, api_request['debug'])
 
         sort_journeys(pb_resp, instance.journey_order, api_request['clockwise'])
         compute_car_co2_emission(pb_resp, api_request, instance)
@@ -839,7 +982,7 @@ class Scenario(simple.Scenario):
         if instance.ridesharing_services and \
                 ('ridesharing' in ridesharing_req['origin_mode']
                  or 'ridesharing' in ridesharing_req['destination_mode']):
-            logging.getLogger(__name__).debug('trying to add ridesharing journeys')
+            logger.debug('trying to add ridesharing journeys')
             try:
                 decorate_journeys(pb_resp, instance, api_request)
             except Exception:
@@ -847,14 +990,13 @@ class Scenario(simple.Scenario):
         else:
             for j in pb_resp.journeys:
                 if 'ridesharing' in j.tags:
-                    journey_filter.mark_as_dead(j, 'no_matching_ridesharing_found')
+                    journey_filter.mark_as_dead(j, api_request.get('debug'), 'no_matching_ridesharing_found')
 
         journey_filter.delete_journeys((pb_resp,), api_request)
         type_journeys(pb_resp, api_request)
         culling_journeys(pb_resp, api_request)
 
         self._compute_pagination_links(pb_resp, instance, api_request['clockwise'])
-
         return pb_resp
 
     def call_kraken(self, request_type, request, instance, krakens_call):
@@ -888,9 +1030,9 @@ class Scenario(simple.Scenario):
                 j.internal_id = "{resp}-{j}".format(resp=self.nb_kraken_calls, j=idx)
 
             if dep_mode == 'ridesharing':
-                _switch_back_to_ridesharing(local_resp, True)
+                switch_back_to_ridesharing(local_resp, True)
             if arr_mode == 'ridesharing':
-                _switch_back_to_ridesharing(local_resp, False)
+                switch_back_to_ridesharing(local_resp, False)
 
             fill_uris(local_resp)
             resp.append(local_resp)
@@ -912,7 +1054,7 @@ class Scenario(simple.Scenario):
         updated_request_with_default(request, instance)
         #we don't want to filter anything!
         krakens_call = get_kraken_calls(request)
-        resp = merge_responses(self.call_kraken(type_pb2.ISOCHRONE, request, instance, krakens_call))
+        resp = merge_responses(self.call_kraken(type_pb2.ISOCHRONE, request, instance, krakens_call), request['debug'])
         if not request['debug']:
             # on isochrone we can filter the number of max journeys
             if request["max_nb_journeys"] and len(resp.journeys) > request["max_nb_journeys"]:
@@ -926,13 +1068,21 @@ class Scenario(simple.Scenario):
 
         to do that we find ask the next (resp previous) query datetime
         """
-        vjs = [j for r in responses for j in r.journeys if not journey_filter.to_be_deleted(j)]
-        if request["clockwise"]:
-            request['datetime'] = self.next_journey_datetime(vjs, request["clockwise"])
+
+        # If Kraken send a new request date time, we use it
+        # for the next call to skip current Journeys
+        if responses and responses[0].HasField('next_request_date_time'):
+            request['datetime'] = responses[0].next_request_date_time
         else:
-            request['datetime'] = self.previous_journey_datetime(vjs, request["clockwise"])
+            vjs = journey_filter.get_qualified_journeys(responses)
+            if request["clockwise"]:
+                request['datetime'] = self.next_journey_datetime(vjs, request["clockwise"])
+            else:
+                request['datetime'] = self.previous_journey_datetime(vjs, request["clockwise"])
 
         if request['datetime'] is None:
+            logger = logging.getLogger(__name__)
+            logger.error("In response next_request_date_time does not exist")
             return None
 
         #TODO forbid ODTs
@@ -940,7 +1090,7 @@ class Scenario(simple.Scenario):
 
     @staticmethod
     def __get_best_for_criteria(journeys, criteria):
-        return min_from_criteria(list(filter(has_pt, journeys)),
+        return min_from_criteria(filter(has_pt, journeys),
                                  [criteria, duration_crit, transfers_crit, nonTC_crit])
 
     def get_best(self, journeys, clockwise):

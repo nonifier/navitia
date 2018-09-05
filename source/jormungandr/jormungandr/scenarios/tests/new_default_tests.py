@@ -32,8 +32,10 @@ import navitiacommon.response_pb2 as response_pb2
 import jormungandr.scenarios.tests.helpers_tests as helpers_tests
 from jormungandr.scenarios import new_default
 from jormungandr.scenarios.new_default import _tag_journey_by_mode, get_kraken_calls
+from jormungandr.scenarios.utils import switch_back_to_ridesharing
 from werkzeug.exceptions import HTTPException
 import pytest
+
 """
  sections       0   1   2   3   4   5   6   7   8   9   10
  -------------------------------------------------------------
@@ -157,7 +159,7 @@ def create_candidate_pool_and_sections_set_test():
     """
     mocked_pb_response = build_mocked_response()
     candidates_pool, sections_set, idx_jrny_must_keep = \
-        new_default._build_candidate_pool_and_sections_set(mocked_pb_response)
+        new_default._build_candidate_pool_and_sections_set(mocked_pb_response.journeys)
 
     # We got 19 journeys in all and 4 of them are tagged with 'best', 'comfort', 'non_pt_bike', 'non_pt_walk'
     assert candidates_pool.shape[0] == 19
@@ -169,7 +171,7 @@ def create_candidate_pool_and_sections_set_test():
 def build_candidate_pool_and_sections_set_test():
     mocked_pb_response = build_mocked_response()
     candidates_pool, sections_set, idx_jrny_must_keep = \
-        new_default._build_candidate_pool_and_sections_set(mocked_pb_response)
+        new_default._build_candidate_pool_and_sections_set(mocked_pb_response.journeys)
     selected_sections_matrix = new_default._build_selected_sections_matrix(sections_set, candidates_pool)
 
     # selected_sections_matrix should have 19 lines(19 journeys) and 11 columns(11 sections)
@@ -183,7 +185,7 @@ def build_candidate_pool_and_sections_set_test():
 def get_sorted_solutions_indexes_test():
     mocked_pb_response = build_mocked_response()
     candidates_pool, sections_set, idx_jrny_must_keep = \
-        new_default._build_candidate_pool_and_sections_set(mocked_pb_response)
+        new_default._build_candidate_pool_and_sections_set(mocked_pb_response.journeys)
     selected_sections_matrix = new_default._build_selected_sections_matrix(sections_set, candidates_pool)
     # 4 journeys are must-have, we'd like to select another 5 journeys
     best_indexes, selection_matrix = \
@@ -258,6 +260,13 @@ def culling_jounreys_4_test():
         assert jrny.type in ('best', 'comfort', 'non_pt_walk')
 
 
+def aggregate_journeys_test():
+    mocked_pb_response = build_mocked_response()
+    aggregated_journeys, remaining_journeys = new_default.aggregate_journeys(mocked_pb_response.journeys)
+    assert len(aggregated_journeys) == 17
+    assert len(remaining_journeys) == 2
+
+
 def merge_responses_on_errors_test():
     """
     check the merge responses when several errors are provided
@@ -270,13 +279,42 @@ def merge_responses_on_errors_test():
     resp2.error.message = "you've been bad"
     r = [resp1, resp2]
     
-    merged_response = new_default.merge_responses(r)
+    merged_response = new_default.merge_responses(r, False)
     
     assert merged_response.HasField(str('error'))
     assert merged_response.error.id == response_pb2.Error.no_solution
     # both messages must be in the composite error
     assert resp1.error.message in merged_response.error.message
     assert resp2.error.message in merged_response.error.message
+
+
+def merge_responses_feed_publishers_test():
+    """
+    Check that the feed publishers are exposed according to the itineraries
+    """
+    resp1 = response_pb2.Response()
+    fp1 = resp1.feed_publishers.add()
+    fp1.id = "Bobby"
+    resp1.journeys.add()
+    resp2 = response_pb2.Response()
+    fp2 = resp2.feed_publishers.add()
+    fp2.id = "Bobbette"
+    resp2.journeys.add()
+    r = [resp1, resp2]
+
+    # The feed publishers of both journeys are exposed
+    merged_response = new_default.merge_responses(r, False)
+    assert len(merged_response.feed_publishers) == 2
+
+    # The 2nd journey is to be deleted so its feed publisher won't be exposed
+    resp2.journeys.add().tags.extend(['to_delete'])
+    merged_response = new_default.merge_responses(r, False)
+    assert len(merged_response.feed_publishers) == 1
+    assert merged_response.feed_publishers[0].id == 'Bobby'
+
+    # With 'debug=True', the journey to delete is exposed and so is its feed publisher
+    merged_response = new_default.merge_responses(r, True)
+    assert len(merged_response.feed_publishers) == 2
 
 
 def add_pt_sections(journey):
@@ -472,7 +510,7 @@ def crowfly_in_ridesharing_test():
     section.type = response_pb2.STREET_NETWORK
     section.street_network.mode = response_pb2.Walking
 
-    new_default._switch_back_to_ridesharing(response, True)
+    switch_back_to_ridesharing(response, True)
 
     assert section_crowfly.street_network.mode == response_pb2.Ridesharing
     assert journey.durations.ridesharing == 42

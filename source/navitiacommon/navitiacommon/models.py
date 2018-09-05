@@ -39,6 +39,7 @@ from sqlalchemy.orm import load_only, backref, aliased
 from datetime import datetime
 from sqlalchemy import func, and_, UniqueConstraint, cast, true, false
 from sqlalchemy.dialects.postgresql import ARRAY, UUID, INTERVAL
+from sqlalchemy.dialects.postgresql.json import JSONB
 from navitiacommon.utils import street_source_types, address_source_types, \
     poi_source_types, admin_source_types
 
@@ -270,6 +271,8 @@ class Instance(db.Model):
 
     import_stops_in_mimir = db.Column(db.Boolean, default=False, nullable=False)
 
+    import_ntfs_in_mimir = db.Column(db.Boolean, default=False, nullable=False)
+
     # ============================================================
     # params for jormungandr
     # ============================================================
@@ -357,6 +360,27 @@ class Instance(db.Model):
 
     realtime_pool_size = db.Column(db.Integer, default=default_values.realtime_pool_size)
 
+    # parameters migrated from scenario STIF
+    min_nb_journeys = db.Column(db.Integer, default=default_values.min_nb_journeys,
+                                nullable=False, server_default='0')
+    min_journeys_calls = db.Column(db.Integer, default=default_values.min_journeys_calls,
+                                   nullable=False, server_default='1')
+    max_successive_physical_mode = db.Column(db.Integer, nullable=True)
+    final_line_filter = db.Column(db.Boolean, default=default_values.final_line_filter,
+                                  nullable=False, server_default=false())
+    max_extra_second_pass = db.Column(db.Integer, default=default_values.max_extra_second_pass,
+                                      nullable=False, server_default='0')
+    max_nb_journeys = db.Column(db.Integer, nullable=True)
+
+    # param only used by distributed scenario
+    import json
+    # default value is read when there is no record in db
+    # server_default(dumped json) is the actual value stored in db, postgres will convert it to a dict when it's read
+    max_nb_crowfly_by_mode = db.Column(JSONB,
+                                       default=default_values.max_nb_crowfly_by_mode,
+                                       server_default=json.dumps(default_values.max_nb_crowfly_by_mode))
+
+    autocomplete_backend = db.Column(db.Text, nullable=False, default=default_values.autocomplete_backend)
 
     def __init__(self, name=None, is_free=False, authorizations=None,
                  jobs=None):
@@ -372,7 +396,7 @@ class Instance(db.Model):
         return the n last dataset of each family type loaded for this instance
         """
         query = db.session.query(func.distinct(DataSet.family_type)) \
-            .filter(Instance.id == self.id)
+            .filter(Instance.id == self.id, DataSet.family_type != 'mimir')
         if family_type:
             query = query.filter(DataSet.family_type == family_type)
 
@@ -395,6 +419,10 @@ class Instance(db.Model):
         return cls.query.filter_by(discarded=False)
 
     @classmethod
+    def query_all(cls):
+        return cls.query
+
+    @classmethod
     def get_by_name(cls, name):
         res = cls.query_existing().filter_by(name=name).first()
         return res
@@ -408,18 +436,21 @@ class Instance(db.Model):
         else:
             raise Exception({'error': 'instance is required'}, 400)
 
-    def delete_dataset(self):
+    def delete_dataset(self, _type):
         result = db.session.query(DataSet, Job) \
             .join(Job) \
-            .filter(DataSet.type == 'poi', Job.instance_id == self.id)\
+            .filter(DataSet.type == _type, Job.instance_id == self.id)\
             .all()
 
+        if not result:
+            return 0
         job_list = {}
         for dataset, job in result:
             # Cascade Delete not working so delete Metric associated manually
             db.session.query(Metric).filter(Metric.dataset_id == dataset.id).delete()
             db.session.delete(dataset)
 
+            # Delete a job without any dataset
             if job.id not in job_list:
                 job_list[job.id] = 1
             else:
@@ -429,6 +460,39 @@ class Instance(db.Model):
                 db.session.delete(job)
 
         db.session.commit()
+        return len(result)
+
+    def delete_old_jobs_and_list_datasets(self, time_limit):
+        """
+        Delete jobs created before the date parameter 'time_limit' and return a list of datasets to delete
+        :param time_limit: date from which jobs will be deleted
+        :return: list of datasets to delete
+        """
+        # Keep the last dataset of each type to be able to reload data
+        dataset_to_keep = self.last_datasets()
+        dataset_file_to_keep = [f.name for f in dataset_to_keep]
+
+        # Keep the jobs associated
+        jobs_to_keep = set()
+        for dataset in dataset_to_keep:
+            job_associated = db.session.query(Job).filter(Job.data_sets.contains(dataset)).first()
+            jobs_to_keep.add(job_associated)
+
+        # Retrieve all jobs created before the time limit
+        old_jobs = db.session.query(Job).filter(Job.instance_id == self.id, Job.created_at < time_limit).all()
+
+        # List all jobs that can be deleted
+        to_delete = list(set(old_jobs) - jobs_to_keep)
+
+        # Retrieve the datasets associated to old jobs in order to delete backups folders
+        old_datasets = []
+        for job_to_delete in to_delete:
+            old_datasets.extend(db.session.query(DataSet).filter(DataSet.job_id == job_to_delete.id).all())
+            db.session.delete(job_to_delete)
+
+        db.session.commit()
+
+        return [dataset.name for dataset in old_datasets if dataset.name not in dataset_file_to_keep]
 
     def __repr__(self):
         return '<Instance %r>' % self.name

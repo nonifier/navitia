@@ -628,7 +628,7 @@ BOOST_AUTO_TEST_CASE(autocomplete_functional_test_admin_and_SA_test) {
     b.sa("chaptal", 0, 0);
     b.sa("Zebre", 0, 0);
 
-    b.data->pt_data->index();
+    b.data->pt_data->sort_and_index();
     Admin* ad = new Admin;
     ad->name = "Quimper";
     ad->uri = "Quimper";
@@ -691,7 +691,7 @@ BOOST_AUTO_TEST_CASE(autocomplete_functional_test_SA_test) {
     b.sa("Tourbie", 0, 0);
     b.sa("Bourgogne", 0, 0);
 
-    b.data->pt_data->index();
+    b.data->pt_data->sort_and_index();
     Admin* ad = new Admin;
     ad->name = "Quimper";
     ad->uri = "Quimper";
@@ -738,22 +738,12 @@ BOOST_AUTO_TEST_CASE(autocomplete_functional_test_admin_SA_and_Address_test) {
     b.sa("Luther King", 0, 0);
     b.sa("Napoleon III", 0, 0);
     b.sa("MPT kerfeunteun", 0, 0);
-    b.data->pt_data->index();
-    Way* w = new Way;
-    w->idx = 0;
-    w->name = "rue DU TREGOR";
-    w->uri = w->name;
-    b.data->geo_ref->ways.push_back(w);
-    w = new navitia::georef::Way;
-    w->name = "rue VIS";
-    w->uri = w->name;
-    w->idx = 1;
-    b.data->geo_ref->ways.push_back(w);
-    w = new navitia::georef::Way;
-    w->idx = 2;
-    w->name = "quai NEUF";
-    w->uri = w->name;
-    b.data->geo_ref->ways.push_back(w);
+    b.data->pt_data->sort_and_index();
+
+
+    b.add_way("rue DU TREGOR", "");
+    b.add_way("rue VIS", "");
+    b.add_way("quai NEUF", "");
 
     Admin* ad = new Admin;
     ad->name = "Quimper";
@@ -1071,7 +1061,6 @@ BOOST_AUTO_TEST_CASE(autocomplete_functional_test_SA_temp_test) {
     b.sa("Tourbie", 0, 0);
     b.sa("Bourgogne", 0, 0);
 
-    b.data->pt_data->index();
     Admin* ad = new Admin;
     ad->name = "Santec";
     ad->uri = "Santec";
@@ -1080,19 +1069,27 @@ BOOST_AUTO_TEST_CASE(autocomplete_functional_test_SA_temp_test) {
     ad->idx = 0;
     b.data->geo_ref->admins.push_back(ad);
     b.manage_admin();
+    b.data->pt_data->sort_and_index();
+    b.data->build_uri();
     b.build_autocomplete();
+
+    auto set_sa_score = [&](const char* uri, int score) {
+        const auto idx = b.data->pt_data->stop_areas_map.at(uri)->idx;
+        b.data->pt_data->stop_area_autocomplete.word_quality_list.at(idx).score = score;
+    };
+
     b.data->geo_ref->fl_admin.word_quality_list.at(0).score = 50;
-    b.data->pt_data->stop_area_autocomplete.word_quality_list.at(0).score = 10;
-    b.data->pt_data->stop_area_autocomplete.word_quality_list.at(1).score = 7;
-    b.data->pt_data->stop_area_autocomplete.word_quality_list.at(2).score = 35;
-    b.data->pt_data->stop_area_autocomplete.word_quality_list.at(3).score = 35;
-    b.data->pt_data->stop_area_autocomplete.word_quality_list.at(4).score = 75;
-    b.data->pt_data->stop_area_autocomplete.word_quality_list.at(5).score = 70;
-    b.data->pt_data->stop_area_autocomplete.word_quality_list.at(6).score = 45;
-    b.data->pt_data->stop_area_autocomplete.word_quality_list.at(7).score = 50;
-    b.data->pt_data->stop_area_autocomplete.word_quality_list.at(8).score = 5;
-    b.data->pt_data->stop_area_autocomplete.word_quality_list.at(9).score = 5;
-    b.data->pt_data->stop_area_autocomplete.word_quality_list.at(10).score = 70;
+    set_sa_score("Santec", 10);
+    set_sa_score("Ar Santé Les Fontaines Nantes", 7);
+    set_sa_score("Santenay-Haut Nantes", 35);
+    set_sa_score("Roye-Agri-Santerre Nantes", 35);
+    set_sa_score("Fontenay-le-Comte-Santé Nantes", 75);
+    set_sa_score("gare de Santes Nantes", 70);
+    set_sa_score("gare de Santenay-les-Bains Nantes", 45);
+    set_sa_score("gare de Santeuil-le-Perchay Nantes", 50);
+    set_sa_score("chaptal", 5);
+    set_sa_score("Tourbie", 5);
+    set_sa_score("Bourgogne", 70);
 
 
     type_filter.push_back(navitia::type::Type_e::StopArea);
@@ -1104,10 +1101,9 @@ BOOST_AUTO_TEST_CASE(autocomplete_functional_test_SA_temp_test) {
 
     BOOST_REQUIRE_EQUAL(resp.places_size(), 12);
     BOOST_CHECK_EQUAL(resp.places(0).embedded_type() , pbnavitia::ADMINISTRATIVE_REGION);
-    BOOST_CHECK_EQUAL(resp.places(1).embedded_type() , pbnavitia::STOP_AREA);
-    BOOST_CHECK_EQUAL(resp.places(0).quality(), 90);
-    BOOST_CHECK_EQUAL(resp.places(1).quality(), 100);
     BOOST_CHECK_EQUAL(resp.places(0).uri(), "Santec"); //Admin
+    BOOST_CHECK_EQUAL(resp.places(0).quality(), 90);
+    BOOST_CHECK_EQUAL(resp.places(1).embedded_type() , pbnavitia::STOP_AREA);
     BOOST_CHECK_EQUAL(resp.places(1).uri(), "Santec"); //score = 7 but quality = 100
     BOOST_CHECK_EQUAL(resp.places(1).quality(), 100);
     BOOST_CHECK_EQUAL(resp.places(2).uri(), "Fontenay-le-Comte-Santé Nantes"); //score = 75
@@ -1228,7 +1224,7 @@ BOOST_AUTO_TEST_CASE(autocomplete_with_multi_postal_codes_test) {
     ed::builder b("20140614");
     b.sa("Santec", 0, 0);
 
-    b.data->pt_data->index();
+    b.data->pt_data->sort_and_index();
     Admin* ad = new Admin;
     ad->name = "Nantes";
     ad->uri = "URI-NANTES";
@@ -1265,7 +1261,7 @@ BOOST_AUTO_TEST_CASE(autocomplete_with_multi_postal_codes_alphanumeric_test) {
     ed::builder b("20140614");
     b.sa("Santec", 0, 0);
 
-    b.data->pt_data->index();
+    b.data->pt_data->sort_and_index();
     Admin* ad = new Admin;
     ad->name = "Nantes";
     ad->uri = "URI-NANTES";
@@ -1303,7 +1299,7 @@ BOOST_AUTO_TEST_CASE(autocomplete_without_postal_codes_test) {
     ed::builder b("20140614");
     b.sa("Santec", 0, 0);
 
-    b.data->pt_data->index();
+    b.data->pt_data->sort_and_index();
     Admin* ad = new Admin;
     ad->name = "Nantes";
     ad->uri = "URI-NANTES";
@@ -1329,6 +1325,45 @@ BOOST_AUTO_TEST_CASE(autocomplete_without_postal_codes_test) {
     BOOST_REQUIRE_EQUAL(resp.places(0).stop_area().administrative_regions(0).label(), "Nantes");
 }
 
+//this test that we do not return any way that don't have edges in the autocompletion
+//we won't be able to build an id for them since they do not have any coordinate
+BOOST_AUTO_TEST_CASE(autocomplete_way_without_edges) {
+    ed::builder b("20140614");
+
+    b.add_way("rue DU TREGOR", "");
+    b.add_way("rue VIS", "");
+    b.add_way("quai NEUF", "");
+
+    //we add a way without any edges, it must not be in the result
+    auto w = new navitia::georef::Way;
+    w->idx = b.data->geo_ref->ways.size();
+    w->name = "rue DU BAC";
+    w->uri = w->name;
+    b.data->geo_ref->ways.push_back(w);
+
+    Admin* ad = new Admin;
+    ad->name = "Quimper";
+    ad->uri = "Quimper";
+    ad->level = 8;
+    ad->postal_codes.push_back("29000");
+    ad->idx = 0;
+    b.data->geo_ref->admins.push_back(ad);
+    b.manage_admin();
+    b.build_autocomplete();
+
+    std::vector<navitia::type::Type_e> type_filter{navitia::type::Type_e::Address};
+    auto * data_ptr = b.data.get();
+    navitia::PbCreator pb_creator(data_ptr, boost::gregorian::not_a_date_time, null_time_period);
+    navitia::autocomplete::autocomplete(pb_creator, "rue", type_filter , 1, 10, {}, 0, *(b.data));
+    pbnavitia::Response resp = pb_creator.get_response();
+
+    BOOST_REQUIRE_EQUAL(resp.places_size(), 2);
+    BOOST_CHECK_EQUAL(resp.places(0).embedded_type() , pbnavitia::ADDRESS);
+    BOOST_REQUIRE_EQUAL(resp.places(0).address().name(), "rue VIS");
+    BOOST_CHECK_EQUAL(resp.places(1).embedded_type() , pbnavitia::ADDRESS);
+    BOOST_REQUIRE_EQUAL(resp.places(1).address().name(), "rue DU TREGOR");
+}
+
 
 BOOST_AUTO_TEST_CASE(autocomplete_with_multi_postal_codes_testAA) {
 
@@ -1347,12 +1382,8 @@ BOOST_AUTO_TEST_CASE(autocomplete_with_multi_postal_codes_testAA) {
     ad->idx = 0;
     b.data->geo_ref->admins.push_back(ad);
 
-    navitia::georef::Way* w = new navitia::georef::Way();
-    w->idx = 0;
-    w->name = "Sante";
-    w->uri = w->name;
+    auto w = b.add_way("Sante", "");
     w->admin_list.push_back(ad);
-    b.data->geo_ref->ways.push_back(w);
 
     ad = new Admin();
     ad->name = "Tours";
@@ -1364,12 +1395,8 @@ BOOST_AUTO_TEST_CASE(autocomplete_with_multi_postal_codes_testAA) {
     ad->idx = 1;
     b.data->geo_ref->admins.push_back(ad);
 
-    w = new navitia::georef::Way();
-    w->idx = 1;
-    w->name = "Sante";
-    w->uri = w->name;
+    w = b.add_way("Sante", "");
     w->admin_list.push_back(ad);
-    b.data->geo_ref->ways.push_back(w);
 
     b.build_autocomplete();
     type_filter.push_back(navitia::type::Type_e::Address);
@@ -1459,7 +1486,7 @@ BOOST_AUTO_TEST_CASE(autocomplete_with_ghostword_test) {
     std::vector<navitia::type::Type_e> type_filter;
     ed::builder b("20140614");
     autocomplete_map synonyms;
-     std::set<std::string> ghostwords;
+    std::set<std::string> ghostwords;
 
     synonyms["cc"]="centre commercial";
     synonyms["hotel de ville"]="mairie";
@@ -1500,19 +1527,11 @@ BOOST_AUTO_TEST_CASE(autocomplete_with_ghostword_test) {
     ad->idx = 0;
     b.data->geo_ref->admins.push_back(ad);
 
-    navitia::georef::Way* w = new navitia::georef::Way();
-    w->idx = 0;
-    w->name = "place de la Gare";
-    w->uri = w->name;
+    auto w = b.add_way("place de la Gare", "");
     w->admin_list.push_back(ad);
-    b.data->geo_ref->ways.push_back(w);
 
-    w = new navitia::georef::Way();
-    w->idx = 1;
-    w->name = "rue de la Garenne";
-    w->uri = w->name;
+    w = b.add_way("rue de la Garenne", "");
     w->admin_list.push_back(ad);
-    b.data->geo_ref->ways.push_back(w);
 
     //Create a new StopArea
     navitia::type::StopArea* sa = new navitia::type::StopArea();
@@ -1707,7 +1726,7 @@ BOOST_AUTO_TEST_CASE(autocomplete_admin_filtering_tests) {
     bob->admin_list.push_back(bobville);
     b.sa("bobette", 0, 0);
 
-    b.data->pt_data->index();
+    b.data->pt_data->sort_and_index();
     b.build_autocomplete();
 
     std::vector<navitia::type::Type_e> type_filter {
@@ -1858,7 +1877,7 @@ BOOST_AUTO_TEST_CASE(autocomplete_functional_test_piquet) {
     b.sa("Napoleon III", 0, 0);
     b.sa("MPT kerfeunteun", 0, 0);
 
-    b.data->pt_data->index();
+    b.data->pt_data->sort_and_index();
     Admin* ad = new Admin;
     ad->name = "Quimper";
     ad->uri = "Quimper";
@@ -1899,7 +1918,7 @@ BOOST_AUTO_TEST_CASE(autocomplete_functional_test_orleans) {
     b.sa("Napoleon III", 0, 0);
     b.sa("MPT kerfeunteun", 0, 0);
 
-    b.data->pt_data->index();
+    b.data->pt_data->sort_and_index();
     Admin* ad = new Admin;
     ad->name = "Quimper";
     ad->uri = "Quimper";
@@ -1950,7 +1969,7 @@ BOOST_AUTO_TEST_CASE(autocomplete_test_stop_area_longest_substring) {
     ed::builder b("20180201");
     b.sa("Jean Jaurès", 0, 0);
 
-    b.data->pt_data->index();
+    b.data->pt_data->sort_and_index();
     Admin* ad = new Admin;
     ad->name = "Toulouse";
     ad->uri = "admin:fr:31555";

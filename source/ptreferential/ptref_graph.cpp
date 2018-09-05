@@ -1,28 +1,28 @@
 /* Copyright © 2001-2014, Canal TP and/or its affiliates. All rights reserved.
-  
+
 This file is part of Navitia,
     the software to build cool stuff with public transport.
- 
+
 Hope you'll enjoy and contribute to this project,
     powered by Canal TP (www.canaltp.fr).
 Help us simplify mobility and open public transport:
     a non ending quest to the responsive locomotion way of traveling!
-  
+
 LICENCE: This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as published by
 the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
-   
+
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 GNU Affero General Public License for more details.
-   
+
 You should have received a copy of the GNU Affero General Public License
 along with this program. If not, see <http://www.gnu.org/licenses/>.
-  
+
 Stay tuned using
-twitter @navitia 
+twitter @navitia
 IRC #navitia on freenode
 https://groups.google.com/d/forum/navitia
 www.navitia.io
@@ -32,8 +32,10 @@ www.navitia.io
 #include "ptreferential.h"
 #include <boost/graph/dijkstra_shortest_paths.hpp>
 
-namespace navitia { namespace ptref {
+namespace navitia {
+namespace ptref {
 
+using navitia::type::Type_e;
 
 /** Contient le graph des transitions
  *
@@ -70,8 +72,10 @@ Jointures::Jointures() {
     // From a CommercialMode, we can have its Lines.
     boost::add_edge(vertex_map.at(Type_e::Line), vertex_map.at(Type_e::CommercialMode), g);
 
-    // À partir d'un physical mode on peut avoir les vehicule journeys
+    // PhysicalMode => {VehicleJourney, JourneyPattern}
     boost::add_edge(vertex_map.at(Type_e::VehicleJourney), vertex_map.at(Type_e::PhysicalMode), g);
+    boost::add_edge(vertex_map.at(Type_e::JourneyPattern), vertex_map.at(Type_e::PhysicalMode), Edge(0.9), g);
+    boost::add_edge(vertex_map.at(Type_e::JourneyPatternPoint), vertex_map.at(Type_e::PhysicalMode), Edge(1.8), g);
 
     // À partir d'une ligne on peut avoir ses modes commerciaux, compagnies, réseaux et routes
     boost::add_edge(vertex_map.at(Type_e::CommercialMode), vertex_map.at(Type_e::Line), g);
@@ -84,10 +88,11 @@ Jointures::Jointures() {
     boost::add_edge(vertex_map.at(Type_e::Line), vertex_map.at(Type_e::Route), g);
     boost::add_edge(vertex_map.at(Type_e::VehicleJourney), vertex_map.at(Type_e::Route), g);
 
-    // À partir d'un journey pattern on peut avoir sa route, ses points et son vehicule journey
+    // JourneyPattern => {Route, JourneyPatternPoint, VehicleJourney, PhysicalMode}
     boost::add_edge(vertex_map.at(Type_e::Route), vertex_map.at(Type_e::JourneyPattern), g);
     boost::add_edge(vertex_map.at(Type_e::JourneyPatternPoint), vertex_map.at(Type_e::JourneyPattern), g);
     boost::add_edge(vertex_map.at(Type_e::VehicleJourney), vertex_map.at(Type_e::JourneyPattern), g);
+    boost::add_edge(vertex_map.at(Type_e::PhysicalMode), vertex_map.at(Type_e::JourneyPattern), Edge(0.9), g);
 
     // from a VehicleJourney, we can have the Route, the
     // JourneyPattern, the Company, the PhysicalMode, the
@@ -113,19 +118,19 @@ Jointures::Jointures() {
     boost::add_edge(vertex_map.at(Type_e::Connection), vertex_map.at(Type_e::StopPoint), g);
 
     // D'une connection on a ses deux stop points
-    boost::add_edge(vertex_map[Type_e::StopPoint], vertex_map[Type_e::Connection], g);
+    boost::add_edge(vertex_map.at(Type_e::StopPoint), vertex_map.at(Type_e::Connection), g);
 
     //De poi vers poi type et vice et versa
-    boost::add_edge(vertex_map[Type_e::POI], vertex_map[Type_e::POIType], g);
-    boost::add_edge(vertex_map[Type_e::POIType], vertex_map[Type_e::POI], g);
+    boost::add_edge(vertex_map.at(Type_e::POI), vertex_map.at(Type_e::POIType), g);
+    boost::add_edge(vertex_map.at(Type_e::POIType), vertex_map.at(Type_e::POI), g);
 
     //from line to calendar
-    boost::add_edge(vertex_map[Type_e::Calendar], vertex_map[Type_e::Line], g);
-    boost::add_edge(vertex_map[Type_e::Line], vertex_map[Type_e::Calendar], g);
+    boost::add_edge(vertex_map.at(Type_e::Calendar), vertex_map.at(Type_e::Line), g);
+    boost::add_edge(vertex_map.at(Type_e::Line), vertex_map.at(Type_e::Calendar), g);
 
     // from line_group to lines
-    boost::add_edge(vertex_map[Type_e::LineGroup], vertex_map[Type_e::Line], g);
-    boost::add_edge(vertex_map[Type_e::Line], vertex_map[Type_e::LineGroup], g);
+    boost::add_edge(vertex_map.at(Type_e::LineGroup), vertex_map.at(Type_e::Line), g);
+    boost::add_edge(vertex_map.at(Type_e::Line), vertex_map.at(Type_e::LineGroup), g);
 
     // From a MetaVehicleJourney, we can have its VehicleJourneys.
     boost::add_edge(vertex_map.at(Type_e::VehicleJourney), vertex_map.at(Type_e::MetaVehicleJourney), g);
@@ -158,6 +163,16 @@ Jointures::Jointures() {
     for (auto object: objects_having_impacts) {
         boost::add_edge(vertex_map.at(Type_e::Impact), vertex_map.at(object), g);
     }
+
+    // Retrieve a PT_object from an Impact. The edges have a super heavy weight to make sure we don't go
+    // through the impact object to resolve other types. Because objects might not have impact attached,
+    // we would not convert object properly otherwise.
+    boost::add_edge(vertex_map.at(Type_e::Network), vertex_map.at(Type_e::Impact), Edge(100), g);
+    boost::add_edge(vertex_map.at(Type_e::Line), vertex_map.at(Type_e::Impact), Edge(100), g);
+    boost::add_edge(vertex_map.at(Type_e::Route), vertex_map.at(Type_e::Impact), Edge(100), g);
+    boost::add_edge(vertex_map.at(Type_e::StopArea), vertex_map.at(Type_e::Impact), Edge(100), g);
+    boost::add_edge(vertex_map.at(Type_e::StopPoint), vertex_map.at(Type_e::Impact), Edge(100), g);
+    boost::add_edge(vertex_map.at(Type_e::MetaVehicleJourney), vertex_map.at(Type_e::Impact), Edge(100), g);
 }
 
 // Retourne un map qui indique pour chaque type par quel type on peut l'atteindre

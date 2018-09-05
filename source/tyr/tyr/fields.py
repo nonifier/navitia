@@ -82,6 +82,7 @@ instance_fields = {
     'discarded': fields.Raw,
     'is_free': fields.Raw,
     'import_stops_in_mimir': fields.Raw,
+    'import_ntfs_in_mimir': fields.Raw,
     'scenario': fields.Raw,
     'journey_order': fields.Raw,
     'max_walking_duration_to_pt': fields.Raw,
@@ -112,6 +113,14 @@ instance_fields = {
     'full_sn_geometries': fields.Boolean,
     'is_open_data': fields.Boolean,
     'realtime_pool_size': fields.Raw,
+    'min_nb_journeys': fields.Raw,
+    'max_nb_journeys': fields.Raw,
+    'min_journeys_calls': fields.Raw,
+    'max_successive_physical_mode': fields.Raw,
+    'final_line_filter': fields.Boolean,
+    'max_extra_second_pass': fields.Raw,
+    'max_nb_crowfly_by_mode': fields.Raw,
+    'autocomplete_backend': fields.Raw,
 }
 
 api_fields = {

@@ -50,6 +50,8 @@ namespace nt = navitia::type;
 namespace pt = boost::posix_time;
 namespace bg = boost::gregorian;
 
+using navitia::type::Type_e;
+
 static const double CO2_ESTIMATION_COEFF = 1.35;
 
 namespace navitia {
@@ -244,11 +246,12 @@ void Worker::status() {
     status->set_data_version(d->version);
     status->set_navitia_version(config::project_version);
     status->set_loaded(d->loaded);
-    status->set_last_load_status(d->last_load);
+    status->set_last_load_status(d->last_load_succeeded);
     status->set_last_load_at(pt::to_iso_string(d->last_load_at));
-    status->set_last_rt_data_loaded(pt::to_iso_string(d->last_rt_data_loaded));
+    status->set_last_rt_data_loaded(pt::to_iso_string(d->last_rt_data_loaded()));
     status->set_nb_threads(conf.nb_threads());
     status->set_is_connected_to_rabbitmq(d->is_connected_to_rabbitmq);
+    status->set_disruption_error(d->disruption_error);
     status->set_status(get_string_status(d));
     status->set_is_realtime_loaded(d->is_realtime_loaded);
     for(const auto& contrib: this->conf.rt_topics()){
@@ -338,7 +341,7 @@ void Worker::init_worker_data(const navitia::type::Data* data,
         planner = std::make_unique<routing::RAPTOR>(*data);
         street_network_worker = std::make_unique<georef::StreetNetwork>(*data->geo_ref);
         this->last_data_identifier = data->data_identifier;
-        LOG4CPLUS_INFO(logger, "Instanciate planner");        
+        LOG4CPLUS_INFO(logger, "Instanciate planner");
     }
     this->pb_creator.init(data, now, action_period, disable_geojson, disable_feedpublisher);
 }
@@ -506,27 +509,27 @@ streetnetwork_params_of_entry_point(const pbnavitia::StreetNetworkParams& reques
     switch(result.mode){
         case type::Mode_e::Bike:
             result.offset = data->geo_ref->offsets[type::Mode_e::Bike];
-            result.speed_factor = request.bike_speed() / georef::default_speed[type::Mode_e::Bike];
+            result.speed_factor = request.bike_speed() / double(georef::default_speed[type::Mode_e::Bike]);
             max_non_pt = request.max_bike_duration_to_pt();
             break;
         case type::Mode_e::Car:
             result.offset = data->geo_ref->offsets[type::Mode_e::Car];
-            result.speed_factor = request.car_speed() / georef::default_speed[type::Mode_e::Car];
+            result.speed_factor = request.car_speed() / double(georef::default_speed[type::Mode_e::Car]);
             max_non_pt = request.max_car_duration_to_pt();
             break;
         case type::Mode_e::CarNoPark:
             result.offset = data->geo_ref->offsets[type::Mode_e::CarNoPark];
-            result.speed_factor = request.car_no_park_speed() / georef::default_speed[type::Mode_e::CarNoPark];
+            result.speed_factor = request.car_no_park_speed() / double(georef::default_speed[type::Mode_e::CarNoPark]);
             max_non_pt = request.max_car_no_park_duration_to_pt();
             break;
         case type::Mode_e::Bss:
             result.offset = data->geo_ref->offsets[type::Mode_e::Bss];
-            result.speed_factor = request.bss_speed() / georef::default_speed[type::Mode_e::Bss];
+            result.speed_factor = request.bss_speed() / double(georef::default_speed[type::Mode_e::Bss]);
             max_non_pt = request.max_bss_duration_to_pt();
             break;
         default:
             result.offset = data->geo_ref->offsets[type::Mode_e::Walking];
-            result.speed_factor = request.walking_speed() / georef::default_speed[type::Mode_e::Walking];
+            result.speed_factor = request.walking_speed() / double(georef::default_speed[type::Mode_e::Walking]);
             max_non_pt = request.max_walking_duration_to_pt();
             break;
     }
@@ -543,7 +546,7 @@ void Worker::place_uri(const pbnavitia::PlaceUriRequest &request) {
         auto ep = type::EntryPoint(type::Type_e::Coord, request.uri());
         type::GeographicalCoord coord = ep.coordinates;
 
-        try{ 
+        try{
             auto address = this->pb_creator.data->geo_ref->nearest_addr(coord);
             const auto& way_coord = WayCoord(address.second, coord, address.first);
             pb_creator.fill(&way_coord, pb_creator.add_places(), request.depth());
@@ -551,7 +554,7 @@ void Worker::place_uri(const pbnavitia::PlaceUriRequest &request) {
             pb_creator.fill_pb_error(pbnavitia::Error::unknown_object,
                                      "Unable to find place: " + request.uri());
         }
-		return;
+        return;
     }
 
     auto it_sa = data->pt_data->stop_areas_map.find(request.uri());
@@ -559,7 +562,7 @@ void Worker::place_uri(const pbnavitia::PlaceUriRequest &request) {
         pb_creator.fill(it_sa->second, pb_creator.add_places(), request.depth());
     } else {
         auto it_sp = data->pt_data->stop_points_map.find(request.uri());
-        if(it_sp != data->pt_data->stop_points_map.end()) {            
+        if(it_sp != data->pt_data->stop_points_map.end()) {
             pb_creator.fill(it_sp->second, pb_creator.add_places(), request.depth());
         } else {
             auto it_poi = data->geo_ref->poi_map.find(request.uri());
@@ -724,10 +727,10 @@ void Worker::journeys(const pbnavitia::JourneysRequest &request, pbnavitia::API 
         case pbnavitia::ISOCHRONE: {
 
             if (! arg.origins.empty() && ! request.clockwise()) {
-                err_msg_isochron(this->pb_creator, "isochrone works only for clockwise request");
+                err_msg_isochron(this->pb_creator, "isochrone works only for clockwise request (use '&datetime_represents=departure')");
                 return;
             } else if(arg.origins.empty() && request.clockwise()){
-                err_msg_isochron(this->pb_creator, "reverse isochrone works only for anti-clockwise request");
+                err_msg_isochron(this->pb_creator, "reverse isochrone works only for anti-clockwise request (use '&datetime_represents=arrival')");
                 return;
             }
             type::EntryPoint ep = arg.origins.empty() ? arg.destinations[0] : arg.origins[0];
@@ -741,21 +744,54 @@ void Worker::journeys(const pbnavitia::JourneysRequest &request, pbnavitia::API 
         }
 
         case pbnavitia::pt_planner:
-            routing::make_pt_response(
-                this->pb_creator, *planner, arg.origins, arg.destinations, arg.datetimes[0],
-                request.clockwise(), arg.accessibilite_params,
-                arg.forbidden, arg.allowed, arg.rt_level,
-                seconds{request.walking_transfer_penalty()}, request.max_duration(),
-                request.max_transfers(), request.max_extra_second_pass(),
-                request.has_direct_path_duration() ? boost::optional<time_duration>(seconds{request.direct_path_duration()}) : boost::optional<time_duration>());
+            routing::make_pt_response(  this->pb_creator,
+                                        *planner,
+                                        arg.origins,
+                                        arg.destinations,
+                                        arg.datetimes[0],
+                                        request.clockwise(),
+                                        arg.accessibilite_params,
+                                        arg.forbidden,
+                                        arg.allowed,
+                                        arg.rt_level,
+                                        seconds{request.walking_transfer_penalty()},
+                                        request.max_duration(),
+                                        request.max_transfers(),
+                                        request.max_extra_second_pass(),
+                                        request.has_direct_path_duration() ?
+                                            boost::optional<time_duration>(seconds{request.direct_path_duration()}) :
+                                            boost::optional<time_duration>(),
+                                        request.has_min_nb_journeys() ?
+                                        boost::make_optional<uint32_t>(request.min_nb_journeys()) : boost::none,
+                                        request.night_bus_filter_max_factor(),
+                                        request.night_bus_filter_base_factor(),
+                                        request.has_timeframe_duration() ?
+                                            boost::make_optional<uint32_t>(request.timeframe_duration()) : boost::none);
             break;
         default:
-            routing::make_response(
-                this->pb_creator, *planner, arg.origins[0], arg.destinations[0], arg.datetimes,
-                request.clockwise(), arg.accessibilite_params,
-                arg.forbidden, arg.allowed, *street_network_worker,
-                arg.rt_level, seconds{request.walking_transfer_penalty()}, request.max_duration(),
-                request.max_transfers(), request.max_extra_second_pass());
+            routing::make_response( this->pb_creator,
+                                    *planner,
+                                    arg.origins[0],
+                                    arg.destinations[0],
+                                    arg.datetimes,
+                                    request.clockwise(),
+                                    arg.accessibilite_params,
+                                    arg.forbidden,
+                                    arg.allowed,
+                                    *street_network_worker,
+                                    arg.rt_level,
+                                    seconds{request.walking_transfer_penalty()},
+                                    request.max_duration(),
+                                    request.max_transfers(),
+                                    request.max_extra_second_pass(),
+                                    request.free_radius_from(),
+                                    request.free_radius_to(),
+                                    request.has_min_nb_journeys() ?
+                                        boost::make_optional<uint32_t>(request.min_nb_journeys()) : boost::none,
+                                    request.night_bus_filter_max_factor(),
+                                    request.night_bus_filter_base_factor(),
+                                    request.has_timeframe_duration() ?
+                                        boost::make_optional<uint32_t>(request.timeframe_duration()) : boost::none);
         }
     }catch(const navitia::coord_conversion_exception& e) {
         this->pb_creator.fill_pb_error(pbnavitia::Error::bad_format, e.what());

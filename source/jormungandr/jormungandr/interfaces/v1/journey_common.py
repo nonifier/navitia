@@ -37,7 +37,7 @@ from datetime import datetime
 from jormungandr.resources_utils import ResourceUtc
 from jormungandr.interfaces.v1.transform_id import transform_id
 from jormungandr.interfaces.parsers import float_gt_0, UnsignedInteger
-from flask.ext.restful import reqparse, abort
+from flask_restful import reqparse, abort
 import logging
 from jormungandr.exceptions import RegionNotFound
 from functools import cmp_to_key
@@ -281,6 +281,13 @@ class JourneyCommon(ResourceUri, ResourceUtc) :
         parser_get.add_argument("direct_path", type=OptionValue(['indifferent', 'only', 'none']),
                                 default='indifferent',
                                 help="Specify if direct path should be suggested")
+
+        parser_get.add_argument("free_radius_from", type=int, default=0,
+                                help="Radius length (in meters) around the coordinates of departure "
+                                     "in which the stop points are considered free to go (crowfly=0)")
+        parser_get.add_argument("free_radius_to", type=int, default=0,
+                                help="Radius length (in meters) around the coordinates of arrival "
+                                     "in which the stop points are considered free to go (crowfly=0)")
 
     def parse_args(self, region=None, uri=None):
         args = self.parsers['get'].parse_args()

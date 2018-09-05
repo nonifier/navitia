@@ -31,7 +31,7 @@ www.navitia.io
 #pragma once
 #include <set>
 #include "type/type.h"
-#include "third_party/osmpbfreader/osmpbfreader.h"
+#include <osmpbfreader/osmpbfreader.h>
 #include "utils/lotus.h"
 #include "utils/logger.h"
 #include <unordered_map>
@@ -39,11 +39,11 @@ www.navitia.io
 #include <boost/geometry/geometries/point.hpp>
 #include <boost/geometry/geometries/polygon.hpp>
 #include <boost/geometry/multi/geometries/multi_polygon.hpp>
-#include "third_party/RTree/RTree.h"
+#include <RTree/RTree.h>
 #include <boost/algorithm/string.hpp>
 
 namespace bg = boost::geometry;
-typedef bg::model::point<float, 2, bg::cs::cartesian> point;
+typedef bg::model::point<double, 2, bg::cs::cartesian> point;
 typedef bg::model::polygon<point, false, false> polygon_type; // ccw, open polygon
 typedef bg::model::multi_polygon<polygon_type> mpolygon_type;
 
@@ -133,7 +133,7 @@ struct OSMRelation {
     std::string postal_code() const;
     void add_postal_code(const std::string& postal_code);
 
-    void set_centre(float lon, float lat) {
+    void set_centre(double lon, double lat) {
         centre = point(lon, lat);
     }
     void build_geometry(OSMCache& cache, OSMId);

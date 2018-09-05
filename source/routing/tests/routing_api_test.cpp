@@ -1,28 +1,28 @@
 /* Copyright © 2001-2014, Canal TP and/or its affiliates. All rights reserved.
-  
+
 This file is part of Navitia,
     the software to build cool stuff with public transport.
- 
+
 Hope you'll enjoy and contribute to this project,
     powered by Canal TP (www.canaltp.fr).
 Help us simplify mobility and open public transport:
     a non ending quest to the responsive locomotion way of traveling!
-  
+
 LICENCE: This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as published by
 the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
-   
+
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 GNU Affero General Public License for more details.
-   
+
 You should have received a copy of the GNU Affero General Public License
 along with this program. If not, see <http://www.gnu.org/licenses/>.
-  
+
 Stay tuned using
-twitter @navitia 
+twitter @navitia
 IRC #navitia on freenode
 https://groups.google.com/d/forum/navitia
 www.navitia.io
@@ -30,6 +30,7 @@ www.navitia.io
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE test_ed
+#include "ed/data.h"
 #include <boost/test/unit_test.hpp>
 #include "routing/raptor_api.h"
 #include "ed/build_helper.h"
@@ -92,6 +93,57 @@ static void dump_response(pbnavitia::Response resp, std::string test_name, bool 
     }
 }
 
+namespace {
+
+struct JourneyCompare
+{
+    bool operator()(
+        const pbnavitia::Journey & j1,
+        const pbnavitia::Journey & j2) const
+    {
+        const auto & j1_time = j1.departure_date_time() + j1.duration();
+        const auto & j2_time = j2.departure_date_time() + j2.duration();
+
+        return  j1_time < j2_time;
+    }
+};
+
+
+struct JourneySectionCompare
+{
+    bool operator()(
+        const pbnavitia::Journey & j1,
+        const pbnavitia::Journey & j2) const
+    {
+        int idx = 1 ;
+        if (j1.sections_size() == 1)
+            idx = 0;
+
+        const auto & sec1_time = j1.sections(idx).begin_date_time() + j1.sections(idx).duration();
+        const auto & sec2_time = j2.sections(idx).begin_date_time() + j2.sections(idx).duration();
+
+        return sec1_time < sec2_time;
+    }
+};
+
+template<class T>
+std::vector<pbnavitia::Journey> sort_journeys_by(pbnavitia::Response resp,
+                                                 const T compare)
+{
+    std::vector<pbnavitia::Journey> journeys;
+    for(const auto& j : resp.journeys())
+        journeys.push_back(j);
+
+    std::sort(journeys.begin(), journeys.end(), compare);
+    return journeys;
+}
+
+std::vector<pbnavitia::Journey> sort_journeys(pbnavitia::Response resp) {
+    return sort_journeys_by(resp, JourneyCompare());
+}
+
+} // namespace anonymous
+
 BOOST_AUTO_TEST_CASE(simple_journey) {
     std::vector<std::string> forbidden;
     ed::builder b("20120614");
@@ -99,7 +151,7 @@ BOOST_AUTO_TEST_CASE(simple_journey) {
     navitia::type::Data data;
     b.generate_dummy_basis();
     b.finish();
-    b.data->pt_data->index();
+    b.data->pt_data->sort_and_index();
     b.data->build_raptor();
     b.data->build_uri();
     b.data->meta->production_date = boost::gregorian::date_period(boost::gregorian::date(2012,06,14), boost::gregorian::days(7));
@@ -159,7 +211,7 @@ BOOST_AUTO_TEST_CASE(simple_journey_with_crow_fly) {
     navitia::type::Data data;
     b.generate_dummy_basis();
     b.finish();
-    b.data->pt_data->index();
+    b.data->pt_data->sort_and_index();
     b.data->build_raptor();
     b.data->build_uri();
     b.data->build_proximity_list();
@@ -252,7 +304,7 @@ BOOST_AUTO_TEST_CASE(journey_stay_in) {
     b.finish();
     navitia::type::Data data;
     b.generate_dummy_basis();
-    b.data->pt_data->index();
+    b.data->pt_data->sort_and_index();
     b.data->build_raptor();
     b.data->build_uri();
     b.data->meta->production_date = boost::gregorian::date_period(boost::gregorian::date(2012,06,14), boost::gregorian::days(7));
@@ -315,7 +367,7 @@ BOOST_AUTO_TEST_CASE(journey_stay_in_teleport) {
     b.finish();
     navitia::type::Data data;
     b.generate_dummy_basis();
-    b.data->pt_data->index();
+    b.data->pt_data->sort_and_index();
     b.data->build_raptor();
     b.data->build_uri();
     b.data->meta->production_date = boost::gregorian::date_period(boost::gregorian::date(2012,06,14), boost::gregorian::days(7));
@@ -384,7 +436,7 @@ BOOST_AUTO_TEST_CASE(journey_stay_in_shortteleport) {
     b.finish();
     navitia::type::Data data;
     b.generate_dummy_basis();
-    b.data->pt_data->index();
+    b.data->pt_data->sort_and_index();
     b.data->build_raptor();
     b.data->build_uri();
     b.data->meta->production_date = boost::gregorian::date_period(boost::gregorian::date(2012,06,14), boost::gregorian::days(7));
@@ -462,7 +514,7 @@ BOOST_AUTO_TEST_CASE(journey_departure_from_a_stay_in) {
     b.finish();
     navitia::type::Data data;
     b.generate_dummy_basis();
-    b.data->pt_data->index();
+    b.data->pt_data->sort_and_index();
     b.data->build_raptor();
     b.data->build_uri();
     b.data->meta->production_date = boost::gregorian::date_period(boost::gregorian::date(2012,06,14), boost::gregorian::days(7));
@@ -531,7 +583,7 @@ BOOST_AUTO_TEST_CASE(journey_arrival_before_a_stay_in) {
     b.finish();
     navitia::type::Data data;
     b.generate_dummy_basis();
-    b.data->pt_data->index();
+    b.data->pt_data->sort_and_index();
     b.data->build_raptor();
     b.data->build_uri();
     b.data->meta->production_date = boost::gregorian::date_period(boost::gregorian::date(2012,06,14), boost::gregorian::days(7));
@@ -589,7 +641,7 @@ BOOST_AUTO_TEST_CASE(journey_arrival_in_a_stay_in) {
     b.finish();
     navitia::type::Data data;
     b.generate_dummy_basis();
-    b.data->pt_data->index();
+    b.data->pt_data->sort_and_index();
     b.data->build_raptor();
     b.data->build_uri();
     b.data->meta->production_date = boost::gregorian::date_period(boost::gregorian::date(2012,06,14), boost::gregorian::days(7));
@@ -658,7 +710,7 @@ BOOST_AUTO_TEST_CASE(journey_arrival_before_a_stay_in_without_teleport) {
     b.finish();
     navitia::type::Data data;
     b.generate_dummy_basis();
-    b.data->pt_data->index();
+    b.data->pt_data->sort_and_index();
     b.data->build_raptor();
     b.data->build_uri();
     b.data->meta->production_date = boost::gregorian::date_period(boost::gregorian::date(2012,06,14), boost::gregorian::days(7));
@@ -706,7 +758,7 @@ BOOST_AUTO_TEST_CASE(journey_stay_in_shortteleport_counterclockwise) {
     b.finish();
     navitia::type::Data data;
     b.generate_dummy_basis();
-    b.data->pt_data->index();
+    b.data->pt_data->sort_and_index();
     b.data->build_raptor();
     b.data->build_uri();
     b.data->meta->production_date = boost::gregorian::date_period(boost::gregorian::date(2012,06,14), boost::gregorian::days(7));
@@ -764,7 +816,7 @@ BOOST_AUTO_TEST_CASE(journey_array){
     navitia::type::Data data;
     b.finish();
     b.generate_dummy_basis();
-    b.data->pt_data->index();
+    b.data->pt_data->sort_and_index();
     b.data->build_raptor();
     b.data->build_uri();
     b.data->geo_ref->init();
@@ -791,7 +843,9 @@ BOOST_AUTO_TEST_CASE(journey_array){
     BOOST_REQUIRE_EQUAL(resp.response_type(), pbnavitia::ITINERARY_FOUND);
     BOOST_REQUIRE_EQUAL(resp.journeys_size(), 2);
 
-    pbnavitia::Journey journey = resp.journeys(0);
+    auto journeys = sort_journeys(resp);
+
+    auto& journey = journeys[0];
     BOOST_REQUIRE_EQUAL(journey.sections_size(), 3);
     pbnavitia::Section section = journey.sections(1);
     BOOST_REQUIRE_EQUAL(section.stop_date_times_size(), 2);
@@ -802,7 +856,7 @@ BOOST_AUTO_TEST_CASE(journey_array){
     BOOST_CHECK_EQUAL(st1.departure_date_time(), navitia::test::to_posix_timestamp("20120614T081100"));
     BOOST_CHECK_EQUAL(st2.arrival_date_time(), navitia::test::to_posix_timestamp("20120614T082000"));
 
-    journey = resp.journeys(1);
+    journey = journeys[1];
     BOOST_REQUIRE_EQUAL(journey.sections_size(), 3);
     section = journey.sections(1);
     BOOST_REQUIRE_EQUAL(section.stop_date_times_size(), 2);
@@ -1074,7 +1128,7 @@ BOOST_FIXTURE_TEST_CASE(biking_walking, streetnetworkmode_fixture<test_speed_pro
     BOOST_CHECK_EQUAL(journey.durations().car(), 0);
     BOOST_CHECK_EQUAL(journey.durations().total(), 130);
     BOOST_CHECK_EQUAL(journey.distances().walking(), 0);
-    BOOST_CHECK_EQUAL(journey.distances().bike(), 532);
+    BOOST_CHECK_EQUAL(journey.distances().bike(), 533);
     BOOST_CHECK_EQUAL(journey.distances().car(), 0);
 
     auto pathitem = section.street_network().path_items(0);
@@ -1129,7 +1183,7 @@ BOOST_FIXTURE_TEST_CASE(biking_with_different_speed, streetnetworkmode_fixture<t
     auto pathitem = section.street_network().path_items(0);
     BOOST_CHECK_EQUAL(pathitem.name(), "rue bs");
     //NOTE: we cannot check length here, it has to be checked in a separate test (below), since the used faked speed in the test
-    BOOST_CHECK_CLOSE(pathitem.duration(), S.distance_to(B) / (get_default_speed()[nt::Mode_e::Bike] * .5), 1);
+    BOOST_CHECK_CLOSE(pathitem.duration(), S.distance_to(B) / double(get_default_speed()[nt::Mode_e::Bike] * .5f), 1);
     pathitem = section.street_network().path_items(1);
     BOOST_CHECK_EQUAL(pathitem.name(), "rue kb");
     pathitem = section.street_network().path_items(2);
@@ -1142,7 +1196,7 @@ BOOST_FIXTURE_TEST_CASE(biking_with_different_speed, streetnetworkmode_fixture<t
     BOOST_CHECK_EQUAL(pathitem.name(), "rue gh");
     pathitem = section.street_network().path_items(6);
     BOOST_CHECK_EQUAL(pathitem.name(), "rue ag");
-    BOOST_CHECK_CLOSE(pathitem.duration(), A.distance_to(G) / (get_default_speed()[nt::Mode_e::Bike] * .5), 1);
+    BOOST_CHECK_CLOSE(pathitem.duration(), A.distance_to(G) / double(get_default_speed()[nt::Mode_e::Bike] * .5f), 1);
 }
 
 // for an admin, when no main stop area is set
@@ -1179,12 +1233,12 @@ BOOST_FIXTURE_TEST_CASE(car_direct, streetnetworkmode_fixture<test_speed_provide
 
     origin.streetnetwork_params.mode = navitia::type::Mode_e::Car;
     origin.streetnetwork_params.offset = b.data->geo_ref->offsets[navitia::type::Mode_e::Car];
-    origin.streetnetwork_params.max_duration = navitia::seconds(total_distance / get_default_speed()[navitia::type::Mode_e::Car]);
+    origin.streetnetwork_params.max_duration = navitia::seconds(total_distance / double(get_default_speed()[navitia::type::Mode_e::Car]));
     origin.streetnetwork_params.speed_factor = 1;
 
     destination.streetnetwork_params.mode = navitia::type::Mode_e::Car;
     destination.streetnetwork_params.offset = b.data->geo_ref->offsets[navitia::type::Mode_e::Car];
-    destination.streetnetwork_params.max_duration = navitia::seconds(total_distance / get_default_speed()[navitia::type::Mode_e::Car]);
+    destination.streetnetwork_params.max_duration = navitia::seconds(total_distance / double(get_default_speed()[navitia::type::Mode_e::Car]));
     destination.streetnetwork_params.speed_factor = 1;
 
     auto resp = make_response();
@@ -1247,16 +1301,16 @@ BOOST_FIXTURE_TEST_CASE(car_parking_bus, streetnetworkmode_fixture<test_speed_pr
     origin.streetnetwork_params.mode = Mode_e::Car;
     origin.streetnetwork_params.offset = b.data->geo_ref->offsets[Mode_e::Car];
     origin.streetnetwork_params.max_duration =
-        seconds(distance_sd / get_default_speed()[Mode_e::Car] / speed_factor)
+        seconds(distance_sd / double(get_default_speed()[Mode_e::Car]) / speed_factor)
         + b.data->geo_ref->default_time_parking_park
-        + seconds(B.distance_to(D) / get_default_speed()[Mode_e::Walking] / speed_factor)
+        + seconds(B.distance_to(D) / double(get_default_speed()[Mode_e::Walking]) / speed_factor)
         + seconds(2);
     origin.streetnetwork_params.speed_factor = speed_factor;
 
     destination.streetnetwork_params.mode = Mode_e::Walking;
     destination.streetnetwork_params.offset = b.data->geo_ref->offsets[Mode_e::Walking];
     destination.streetnetwork_params.max_duration =
-        seconds(distance_ar / get_default_speed()[Mode_e::Walking] / speed_factor)
+        seconds(distance_ar / double(get_default_speed()[Mode_e::Walking]) / speed_factor)
         + seconds(1);
     destination.streetnetwork_params.speed_factor = speed_factor;
 
@@ -1335,16 +1389,16 @@ BOOST_FIXTURE_TEST_CASE(bus_car_parking, streetnetworkmode_fixture<test_speed_pr
     origin.streetnetwork_params.mode = Mode_e::Car;
     origin.streetnetwork_params.offset = b.data->geo_ref->offsets[Mode_e::Car];
     origin.streetnetwork_params.max_duration =
-        seconds(distance_sd / get_default_speed()[Mode_e::Car] / speed_factor)
+        seconds(distance_sd / double(get_default_speed()[Mode_e::Car]) / speed_factor)
         + b.data->geo_ref->default_time_parking_park
-        + seconds(B.distance_to(D) / get_default_speed()[Mode_e::Walking] / speed_factor)
+        + seconds(B.distance_to(D) / double(get_default_speed()[Mode_e::Walking]) / speed_factor)
         + seconds(2);
     origin.streetnetwork_params.speed_factor = speed_factor;
 
     destination.streetnetwork_params.mode = Mode_e::Walking;
     destination.streetnetwork_params.offset = b.data->geo_ref->offsets[Mode_e::Walking];
     destination.streetnetwork_params.max_duration =
-        seconds(distance_ar / get_default_speed()[Mode_e::Walking] / speed_factor)
+        seconds(distance_ar / double(get_default_speed()[Mode_e::Walking]) / speed_factor)
         + seconds(1);
     destination.streetnetwork_params.speed_factor = speed_factor;
     datetimes = {navitia::test::to_posix_timestamp("20120614T070000")};
@@ -1473,7 +1527,7 @@ BOOST_FIXTURE_TEST_CASE(bss_test, streetnetworkmode_fixture<test_speed_provider>
     BOOST_CHECK_EQUAL(journey->durations().car(), 0);
     BOOST_CHECK_EQUAL(journey->durations().total(), 309);
     BOOST_CHECK_EQUAL(journey->distances().walking(), 144);
-    BOOST_CHECK_EQUAL(journey->distances().bike(), 450);
+    BOOST_CHECK_EQUAL(journey->distances().bike(), 451);
     BOOST_CHECK_EQUAL(journey->distances().car(), 0);
 
     //bike
@@ -1539,7 +1593,7 @@ BOOST_FIXTURE_TEST_CASE(bss_test, streetnetworkmode_fixture<test_speed_provider>
     pathitem = section.street_network().path_items(1);
     BOOST_CHECK_EQUAL(pathitem.name(), "rue ar");
 //    BOOST_CHECK_EQUAL(pathitem.duration(), 0); //projection
-    BOOST_CHECK_CLOSE(pathitem.duration(), A.distance_to(R) / (get_default_speed()[nt::Mode_e::Walking]), 1);
+    BOOST_CHECK_CLOSE(pathitem.duration(), A.distance_to(R) / double(get_default_speed()[nt::Mode_e::Walking]), 1);
     BOOST_CHECK_EQUAL(section.origin().address().coord().lon(), section.street_network().coordinates(0).lon());
     BOOST_CHECK_EQUAL(section.origin().address().coord().lat(), section.street_network().coordinates(0).lat());
 }
@@ -1683,7 +1737,7 @@ BOOST_FIXTURE_TEST_CASE(speed_factor_length_test, streetnetworkmode_fixture<norm
     pathitem = path_items[cpt++];
     BOOST_CHECK_EQUAL(pathitem.name(), "rue ab");
     BOOST_CHECK_CLOSE(pathitem.duration(),
-                      200 / (speed_factor * get_default_speed()[nt::Mode_e::Walking]),
+                      200 / (speed_factor * double(get_default_speed()[nt::Mode_e::Walking])),
                       2);
     BOOST_CHECK_CLOSE(pathitem.length(), 200, 2);
     // check again on crowfly
@@ -1775,7 +1829,7 @@ BOOST_AUTO_TEST_CASE(projection_on_one_way) {
     destination.streetnetwork_params.max_duration = bt::pos_infin;
 
     b.generate_dummy_basis();
-    b.data->pt_data->index();
+    b.data->pt_data->sort_and_index();
     b.data->build_raptor();
     b.data->build_uri();
     b.data->build_proximity_list();
@@ -1893,7 +1947,7 @@ struct isochrone_fixture {
         b.vj("l5")("A", "8:28"_t)("C", "9:50"_t);
         b.vj("l6")("C", "8:29"_t)("B", "10:50"_t);
 
-        b.data->pt_data->index();
+        b.data->pt_data->sort_and_index();
         b.data->build_uri();
         b.data->build_raptor();
     }
@@ -1978,7 +2032,7 @@ BOOST_AUTO_TEST_CASE(with_information_disruptions) {
 
     b.finish();
     b.generate_dummy_basis();
-    b.data->pt_data->index();
+    b.data->pt_data->sort_and_index();
     b.data->build_raptor();
     b.data->build_uri();
     std::set<ChannelType> channel_types;
@@ -2035,7 +2089,7 @@ BOOST_AUTO_TEST_CASE(with_disruptions_on_network) {
 
     b.finish();
     b.generate_dummy_basis();
-    b.data->pt_data->index();
+    b.data->pt_data->sort_and_index();
     b.data->build_raptor();
     b.data->build_uri();
 
@@ -2087,7 +2141,7 @@ BOOST_AUTO_TEST_CASE(journey_with_forbidden) {
     navitia::type::Data data;
     b.generate_dummy_basis();
     b.finish();
-    b.data->pt_data->index();
+    b.data->pt_data->sort_and_index();
     b.data->build_raptor();
     b.data->build_uri();
     b.data->meta->production_date = boost::gregorian::date_period(boost::gregorian::date(2012,06,14), boost::gregorian::days(7));
@@ -2139,7 +2193,7 @@ BOOST_FIXTURE_TEST_CASE(direct_path_filtering_test, streetnetworkmode_fixture<te
     destination.streetnetwork_params.speed_factor = 1;
     destination.streetnetwork_params.max_duration = navitia::seconds(15*60);
 
-    forbidden = {"A", "B", "D"};
+    forbidden = {"A", "B", "D", "M"};
 
     pbnavitia::Response resp = make_response();
     dump_response(resp, "direct_path_filtering");
@@ -2271,7 +2325,7 @@ BOOST_AUTO_TEST_CASE(stop_times_with_distinct_arrival_departure) {
 
     b.finish();
     b.generate_dummy_basis();
-    b.data->pt_data->index();
+    b.data->pt_data->sort_and_index();
     b.data->build_raptor();
     b.data->build_uri();
 
@@ -2299,4 +2353,1724 @@ BOOST_AUTO_TEST_CASE(stop_times_with_distinct_arrival_departure) {
     for (int i = 1; i < j.sections_size(); ++i) {
         BOOST_CHECK_EQUAL(j.sections(i - 1).end_date_time(), j.sections(i).begin_date_time());
     }
+}
+
+/*
+ * Test the section geometry without provided shapes contains
+ * only its stop points coordinates.
+ *
+ *     S2    S3
+ *     +-----+
+ *    /
+ *   /
+ *  /
+ * /
+ * +S1
+ */
+BOOST_AUTO_TEST_CASE(section_geometry_without_shapes) {
+    ed::builder b("20180309");
+    b.sa("stop1")("stop_point:stop1", 0, 0, false);
+    b.sa("stop2")("stop_point:stop2", 4, 5, false);
+    b.sa("stop3")("stop_point:stop3", 10, 5, false);
+    b.vj("vj")
+        ("stop_point:stop1", 1000, 1100)
+        ("stop_point:stop2", 1200, 1500)
+        ("stop_point:stop3", 1700, 2000);
+
+    b.finish();
+    b.data->pt_data->sort_and_index();
+    b.data->build_raptor();
+    b.data->build_uri();
+    auto prod_date = boost::gregorian::date(2018, 3, 9);
+    auto prod_len = boost::gregorian::days(1);
+    b.data->meta->production_date = boost::gregorian::date_period(prod_date, prod_len);
+
+    nr::RAPTOR raptor(*(b.data));
+
+    navitia::type::Type_e origin_type = b.data->get_type_of_id("stop1");
+    navitia::type::Type_e destination_type = b.data->get_type_of_id("stop3");
+    navitia::type::EntryPoint origin(origin_type, "stop1");
+    navitia::type::EntryPoint destination(destination_type, "stop3");
+    std::vector<std::string> forbidden;
+    ng::StreetNetwork sn_worker(*b.data->geo_ref);
+
+    auto * data_ptr = b.data.get();
+    navitia::PbCreator pb_creator(data_ptr, boost::gregorian::not_a_date_time, null_time_period);
+    make_response(pb_creator, raptor, origin, destination, {ntest::to_posix_timestamp("20180309T001500")},
+                  true, navitia::type::AccessibiliteParams(), forbidden, {},
+                  sn_worker, nt::RTLevel::Base, 2_min);
+    pbnavitia::Response resp = pb_creator.get_response();
+
+    BOOST_REQUIRE_EQUAL(resp.journeys_size(), 1);
+    pbnavitia::Journey journey = resp.journeys(0);
+
+    BOOST_REQUIRE_EQUAL(journey.sections_size(), 3);
+    pbnavitia::Section section = journey.sections(0);
+
+    BOOST_REQUIRE_EQUAL(journey.sections(0).stop_date_times().size(), 0);
+    BOOST_REQUIRE_EQUAL(journey.sections(1).stop_date_times().size(), 3);
+    BOOST_REQUIRE_EQUAL(journey.sections(2).stop_date_times().size(), 0);
+
+    BOOST_CHECK_EQUAL(journey.sections(1).shape().size(), 3);
+
+    BOOST_CHECK_EQUAL(journey.sections(1).shape(0).lon(), 0);
+    BOOST_CHECK_EQUAL(journey.sections(1).shape(0).lat(), 0);
+
+    BOOST_CHECK_EQUAL(journey.sections(1).shape(1).lon(), 4);
+    BOOST_CHECK_EQUAL(journey.sections(1).shape(1).lat(), 5);
+
+    BOOST_CHECK_EQUAL(journey.sections(1).shape(2).lon(), 10);
+    BOOST_CHECK_EQUAL(journey.sections(1).shape(2).lat(), 5);
+}
+
+/*
+ * Test the free radius filter with classic journeys
+ *
+ * We create 4 VJ to test this option (free radius filtering).
+ *
+ * Case 1 :
+ * - Type : No filter radius
+ * - Result : We have 4 journeys with 3 sections each
+ *            for each journeys
+ *            section 1 -> crow fly with real duration
+ *            section 2 -> public transport
+ *            section 3 -> crow fly with real duration
+ *
+ * Case 2 :
+ * - Type : With a big from filter radius
+ * - Result : We have 4 journeys with 3 sections each
+ *            for each journeys
+ *            section 1 -> crow fly with 0 duration
+ *            section 2 -> public transport
+ *            section 3 -> crow fly with real duration
+ *
+ * Case 3 :
+ * - Type : With a half from filter radius
+ * - Result : We have 4 journeys with 3 sections each
+ *            * jouneys 1
+ *            section 1 -> crow fly with 0 duration
+ *            section 2 -> public transport
+ *            section 3 -> crow fly with real duration
+ *           * jouneys 2
+ *            section 1 -> crow fly with 0 duration
+ *            section 2 -> public transport
+ *            section 3 -> crow fly with real duration
+ *           * jouneys 3
+ *            section 1 -> crow fly with real duration
+ *            section 2 -> public transport
+ *            section 3 -> crow fly with real duration
+ *            * jouneys 4
+ *            section 1 -> crow fly with real duration
+ *            section 2 -> public transport
+ *            section 3 -> crow fly with real duration
+ *
+ *
+ *
+ *                       SA1                          SA2
+ *             |-------------------------|---------------------------|
+ *             |                         |                           |
+ *             |                         |                           |
+ * x from      | S1             S2       |       S1             S2   |
+ *   ------------  -------------  --------------- --------------     |
+ *       10 m             10 m            10 m           10 m        |
+ *             |                         |                           |
+ *             |                         |                           |
+ *             |                         |                           |
+ *             |-------------------------|---------------------------|
+ *
+ *
+ *
+ *
+ *                                    SA3
+ *             |--------------------------------------------------|
+ *             |                                                  |
+ *             |                                                  |
+ *             |                                                  |
+ * x to        |  S1          S2           S3          S4         |
+ *   -------------  ----------  -----------  -----------          |
+ *        100 m        100 m       100 m       100 m              |
+ *             |                                                  |
+ *             |                                                  |
+ *             |                                                  |
+ *             |--------------------------------------------------|
+ *
+ */
+BOOST_AUTO_TEST_CASE(journeys_with_free_radius_filter) {
+
+    // Create Builder
+    ed::builder b("20180309");
+
+    // Create Area
+    b.sa("stop_area:sa1")("stop_point:sa1:s1", 2.39592, 48.84848, false)("stop_point:sa1:s2", 2.39592, 48.84858, false);
+    b.sa("stop_area:sa2")("stop_point:sa2:s1", 2.39592, 48.84868, false)("stop_point:sa2:s2", 2.39592, 48.84878, false);
+    b.sa("stop_area:sa3")("stop_point:sa3:s1", 2.36381, 48.86650, false)("stop_point:sa3:s2", 2.36381, 48.86550, false)
+    ("stop_point:sa3:s3", 2.36381, 48.86450, false)("stop_point:sa3:s4", 2.36381, 48.86350, false);
+    b.vj("vj1")("stop_point:sa1:s1", "8:00"_t, "8:01"_t)("stop_point:sa3:s1", "8:20"_t, "8:11"_t);
+    b.vj("vj2")("stop_point:sa1:s2", "8:00"_t, "8:01"_t)("stop_point:sa3:s2", "8:15"_t, "8:11"_t);
+    b.vj("vj3")("stop_point:sa2:s1", "8:00"_t, "8:01"_t)("stop_point:sa3:s3", "8:10"_t, "8:11"_t);
+    b.vj("vj4")("stop_point:sa2:s2", "8:00"_t, "8:01"_t)("stop_point:sa3:s4", "8:05"_t, "8:11"_t);
+
+    b.finish();
+    b.data->pt_data->sort_and_index();
+    b.data->build_raptor();
+    b.data->build_uri();
+    b.data->build_proximity_list();
+    auto prod_date = boost::gregorian::date(2018, 3, 9);
+    auto prod_len = boost::gregorian::days(1);
+    b.data->meta->production_date = boost::gregorian::date_period(prod_date, prod_len);
+
+    // create Raptor
+    nr::RAPTOR raptor(*(b.data));
+
+    // from (nation)
+    navitia::type::EntryPoint origin(navitia::type::Type_e::Coord, "from_coord");
+    origin.streetnetwork_params.max_duration = navitia::time_duration(boost::date_time::pos_infin);
+    origin.coordinates.set_lon(2.39592);
+    origin.coordinates.set_lat(48.84838);
+
+    // to (republique)
+    navitia::type::EntryPoint destination(navitia::type::Type_e::Coord, "to_coord");
+    destination.streetnetwork_params.max_duration = navitia::time_duration(boost::date_time::pos_infin);
+    destination.coordinates.set_lon(2.36381);
+    destination.coordinates.set_lat(48.86750);
+
+    std::vector<std::string> forbidden;
+    ng::StreetNetwork sn_worker(*b.data->geo_ref);
+
+
+    //-----------------------------------
+    // Case 1 : No filter radius
+
+    // free radius to test
+    uint32_t free_radius_from = 0;
+    uint32_t free_radius_to = 0;
+
+    // send request
+    auto * data_ptr = b.data.get();
+    navitia::PbCreator pb_creator1(data_ptr, "20180309T080100"_dt, null_time_period);
+    make_response(pb_creator1,
+                  raptor,
+                  origin,
+                  destination,
+                  {ntest::to_posix_timestamp("20180309T080000")},
+                  true,
+                  navitia::type::AccessibiliteParams(),
+                  forbidden,
+                  {},
+                  sn_worker,
+                  nt::RTLevel::Base,
+                  2_min,
+                  8640,
+                  10,
+                  0,
+                  free_radius_from,
+                  free_radius_to);
+
+    // get the response
+    pbnavitia::Response resp = pb_creator1.get_response();
+    BOOST_REQUIRE_EQUAL(resp.response_type(), pbnavitia::ITINERARY_FOUND);
+    BOOST_REQUIRE_EQUAL(resp.journeys_size(), 4);
+
+    auto journeys = sort_journeys(resp);
+
+    // Journey 1
+    pbnavitia::Journey journey = journeys[0];
+    BOOST_REQUIRE_EQUAL(journey.sections_size(), 3);
+    pbnavitia::Section section = journey.sections(0);
+    BOOST_CHECK(section.duration() > 0);
+
+    // Journey 2
+    journey = journeys[1];
+    BOOST_REQUIRE_EQUAL(journey.sections_size(), 3);
+    section = journey.sections(0);
+    BOOST_CHECK(section.duration() > 0);
+
+    // Journey 3
+    journey = journeys[2];
+    BOOST_REQUIRE_EQUAL(journey.sections_size(), 3);
+    section = journey.sections(0);
+    BOOST_CHECK(section.duration() > 0);
+
+    // Journey 4
+    journey = journeys[3];
+    BOOST_REQUIRE_EQUAL(journey.sections_size(), 3);
+    section = journey.sections(0);
+    BOOST_CHECK(section.duration() > 0);
+
+    //-----------------------------------
+    // Case 2 : With a big "from filter radius"
+
+    // free radius to test
+    free_radius_from = 200; // 200 meters
+    free_radius_to = 0;
+
+    // send request
+    navitia::PbCreator pb_creator2(data_ptr, "20180309T080100"_dt, null_time_period);
+    make_response(pb_creator2,
+                  raptor,
+                  origin,
+                  destination,
+                  {ntest::to_posix_timestamp("20180309T080000")},
+                  true,
+                  navitia::type::AccessibiliteParams(),
+                  forbidden,
+                  {},
+                  sn_worker,
+                  nt::RTLevel::Base,
+                  2_min,
+                  8640,
+                  10,
+                  0,
+                  free_radius_from,
+                  free_radius_to);
+
+    // get the response
+    resp = pb_creator2.get_response();
+    BOOST_REQUIRE_EQUAL(resp.response_type(), pbnavitia::ITINERARY_FOUND);
+    BOOST_REQUIRE_EQUAL(resp.journeys_size(), 4);
+
+    journeys = sort_journeys(resp);
+
+    // Journey 1
+    journey = journeys[0];
+    BOOST_REQUIRE_EQUAL(journey.sections_size(), 3);
+    section = journey.sections(0);
+    BOOST_CHECK_EQUAL(section.duration(), 0);
+    BOOST_CHECK_EQUAL(section.type(), pbnavitia::CROW_FLY);
+
+    // Journey 2
+    journey = journeys[1];
+    BOOST_REQUIRE_EQUAL(journey.sections_size(), 3);
+    section = journey.sections(0);
+    BOOST_CHECK_EQUAL(section.duration(), 0);
+
+    // Journey 3
+    journey = journeys[2];
+    BOOST_REQUIRE_EQUAL(journey.sections_size(), 3);
+    section = journey.sections(0);
+    BOOST_CHECK_EQUAL(section.duration(), 0);
+
+    // Journey 4
+    journey = journeys[3];
+    BOOST_REQUIRE_EQUAL(journey.sections_size(), 3);
+    section = journey.sections(0);
+    BOOST_CHECK_EQUAL(section.duration(), 0);
+
+    //-----------------------------------
+    // Case 3 : With a half "from filter radius"
+
+    // free radius to test
+    free_radius_from = 30; // 30 meters just to catch sa1:s1 and sa1:s2
+    free_radius_to = 0;
+
+    // send request
+    navitia::PbCreator pb_creator3(data_ptr, "20180309T080100"_dt, null_time_period);
+    make_response(pb_creator3,
+                  raptor,
+                  origin,
+                  destination,
+                  {ntest::to_posix_timestamp("20180309T080000")},
+                  true,
+                  navitia::type::AccessibiliteParams(),
+                  forbidden,
+                  {},
+                  sn_worker,
+                  nt::RTLevel::Base,
+                  2_min,
+                  8640,
+                  10,
+                  0,
+                  free_radius_from,
+                  free_radius_to);
+
+    // get the response
+    resp = pb_creator3.get_response();
+    BOOST_REQUIRE_EQUAL(resp.response_type(), pbnavitia::ITINERARY_FOUND);
+    BOOST_REQUIRE_EQUAL(resp.journeys_size(), 4);
+
+    journeys = sort_journeys(resp);
+
+    // Journey 1
+    journey = journeys[0];
+    BOOST_REQUIRE_EQUAL(journey.sections_size(), 3);
+    section = journey.sections(0);
+    BOOST_CHECK_EQUAL(section.duration(), 55);
+
+    // Journey 2
+    journey = journeys[1];
+    BOOST_REQUIRE_EQUAL(journey.sections_size(), 3);
+    section = journey.sections(0);
+    BOOST_CHECK_EQUAL(section.duration(), 41);
+
+    // Journey 3
+    journey = journeys[2];
+    BOOST_REQUIRE_EQUAL(journey.sections_size(), 3);
+    section = journey.sections(0);
+    BOOST_CHECK_EQUAL(section.duration(), 0);
+
+    // Journey 4
+    journey = journeys[3];
+    BOOST_REQUIRE_EQUAL(journey.sections_size(), 3);
+    section = journey.sections(0);
+    BOOST_CHECK_EQUAL(section.duration(), 0);
+}
+
+/*
+ * Test the section geometry with provided shapes has
+ * something different from the initial stop points
+ * coordinates (as the shape is made of coordinates
+ * which do no match exactly with the stop points).
+ *
+ * B    S2 C S3
+ * +----+--+-+
+ * |   /
+ * |  /
+ * | /
+ * |/
+ * +
+ * AS1
+ */
+BOOST_AUTO_TEST_CASE(section_geometry_with_shapes) {
+    ed::builder b("20180309");
+    b.sa("stop1")("stop_point:stop1", 0, 0, false);
+    b.sa("stop2")("stop_point:stop2", 5, 5, false);
+    b.sa("stop3")("stop_point:stop3", 10, 5, false);
+
+    static const navitia::type::GeographicalCoord S1(0, 0);
+    static const navitia::type::GeographicalCoord S2(4, 5);
+    static const navitia::type::GeographicalCoord S3(10, 5);
+
+    static const navitia::type::GeographicalCoord A(0, 0);
+    static const navitia::type::GeographicalCoord B(0, 5);
+    static const navitia::type::GeographicalCoord C(8, 5);
+
+    navitia::type::LineString shape = {A, B};
+    static const navitia::type::LineString shape_S2 = ed::create_shape(S1, S2, shape);
+    shape = {B, C};
+    static const navitia::type::LineString shape_S3 = ed::create_shape(S2, S3, shape);
+
+    b.vj("vj")
+        ("stop_point:stop1", 1000, 1100)
+        ("stop_point:stop2", 1200, 1500).st_shape(shape_S2)
+        ("stop_point:stop3", 1700, 2000).st_shape(shape_S3);
+
+    b.finish();
+    b.data->pt_data->sort_and_index();
+    b.data->build_raptor();
+    b.data->build_uri();
+    b.data->meta->production_date = boost::gregorian::date_period(boost::gregorian::date(2018, 3, 9), boost::gregorian::days(1));
+
+    nr::RAPTOR raptor(*(b.data));
+
+    navitia::type::Type_e origin_type = b.data->get_type_of_id("stop1");
+    navitia::type::Type_e destination_type = b.data->get_type_of_id("stop3");
+    navitia::type::EntryPoint origin(origin_type, "stop1");
+    navitia::type::EntryPoint destination(destination_type, "stop3");
+    std::vector<std::string> forbidden;
+    ng::StreetNetwork sn_worker(*b.data->geo_ref);
+
+    auto * data_ptr = b.data.get();
+    navitia::PbCreator pb_creator(data_ptr, boost::gregorian::not_a_date_time, null_time_period);
+    make_response(pb_creator, raptor, origin, destination, {ntest::to_posix_timestamp("20180309T001500")},
+                  true, navitia::type::AccessibiliteParams(), forbidden, {},
+                  sn_worker, nt::RTLevel::Base, 2_min);
+    pbnavitia::Response resp = pb_creator.get_response();
+
+    BOOST_REQUIRE_EQUAL(resp.journeys_size(), 1);
+    pbnavitia::Journey journey = resp.journeys(0);
+
+    BOOST_REQUIRE_EQUAL(journey.sections_size(), 3);
+    pbnavitia::Section section = journey.sections(0);
+
+    BOOST_REQUIRE_EQUAL(journey.sections(0).stop_date_times().size(), 0);
+    BOOST_REQUIRE_EQUAL(journey.sections(1).stop_date_times().size(), 3);
+    BOOST_REQUIRE_EQUAL(journey.sections(2).stop_date_times().size(), 0);
+
+    BOOST_CHECK_EQUAL(journey.sections(1).shape().size(), 5);
+
+    BOOST_CHECK_EQUAL(journey.sections(1).shape(0).lon(), 0);
+    BOOST_CHECK_EQUAL(journey.sections(1).shape(0).lat(), 0);
+
+    BOOST_CHECK_EQUAL(journey.sections(1).shape(1).lon(), 0);
+    BOOST_CHECK_EQUAL(journey.sections(1).shape(1).lat(), 5);
+
+    BOOST_CHECK_EQUAL(journey.sections(1).shape(2).lon(), 4);
+    BOOST_CHECK_EQUAL(journey.sections(1).shape(2).lat(), 5);
+
+    BOOST_CHECK_EQUAL(journey.sections(1).shape(3).lon(), 8);
+    BOOST_CHECK_EQUAL(journey.sections(1).shape(3).lat(), 5);
+
+    BOOST_CHECK_EQUAL(journey.sections(1).shape(4).lon(), 10);
+    BOOST_CHECK_EQUAL(journey.sections(1).shape(4).lat(), 5);
+}
+
+/**
+ * @brief This test aims to highlight the min_nb_journeys option on a journey request.
+ *
+ * min_nb_journeys allows to ask differents same journeys.
+ * The data for testing :
+ *
+ * start : sp1
+ * stop  : sp2
+ *
+ * Vehicle journey with multiple stops times
+ * date : 2018 03 09
+ *
+ *           sp1                   sp2
+ *            x---------------------x
+ *         - 8:01                - 8:10
+ *         - 8:03                - 8:12
+ *         - 8:05                - 8:14
+ *         - 8:07                - 8:16
+ *
+ * We create several requests :
+ *
+ * Case 1 : Simple request without min_nb_journeys
+ *          We must have only one journeys
+ * Case 2 : Request with min_nb_journeys = 4 and clockwise = true
+ *          We must have all journeys
+ * Case 3 : Request with min_nb_journeys = 4 and clockwise = false
+ *          We must have all journeys (reverse)
+ */
+BOOST_AUTO_TEST_CASE(journeys_with_min_nb_journeys) {
+    // Create Builder
+    ed::builder b("20180309");
+
+    // Create Area
+    b.sa("stop_area:sa1")("stop_point:sa1:sp1", 2.39592, 48.84848, false);
+    b.sa("stop_area:sa2")("stop_point:sa2:sp2", 2.36381, 48.86650, false);
+    b.vj("vj1")("stop_point:sa1:sp1", "8:00"_t, "8:01"_t)("stop_point:sa2:sp2", "8:10"_t, "8:11"_t);
+    b.vj("vj2")("stop_point:sa1:sp1", "8:02"_t, "8:03"_t)("stop_point:sa2:sp2", "8:12"_t, "8:13"_t);
+    b.vj("vj3")("stop_point:sa1:sp1", "8:04"_t, "8:05"_t)("stop_point:sa2:sp2", "8:14"_t, "8:15"_t);
+    b.vj("vj4")("stop_point:sa1:sp1", "8:06"_t, "8:07"_t)("stop_point:sa2:sp2", "8:16"_t, "8:17"_t);
+
+    b.finish();
+    b.data->pt_data->sort_and_index();
+    b.data->build_raptor();
+    b.data->build_uri();
+    b.data->build_proximity_list();
+    auto prod_date = boost::gregorian::date(2018, 3, 9);
+    auto prod_len = boost::gregorian::days(1);
+    b.data->meta->production_date = boost::gregorian::date_period(prod_date, prod_len);
+
+    // create Raptor
+    nr::RAPTOR raptor(*(b.data));
+
+    // from (nation)
+    navitia::type::EntryPoint origin(navitia::type::Type_e::StopPoint, "stop_point:sa1:sp1");
+
+    // to (republique)
+    navitia::type::EntryPoint destination(navitia::type::Type_e::StopPoint, "stop_point:sa2:sp2");
+
+    std::vector<std::string> forbidden;
+    ng::StreetNetwork sn_worker(*b.data->geo_ref);
+
+    //-----------------------------------
+    // Case 1 : Simple request without multi journeys
+
+    // send request
+    auto * data_ptr = b.data.get();
+    navitia::PbCreator pb_creator1(data_ptr, "20180309T080100"_dt, null_time_period);
+    make_response(pb_creator1,
+                  raptor,
+                  origin,
+                  destination,
+                  {ntest::to_posix_timestamp("20180309T080000")},
+                  true,
+                  navitia::type::AccessibiliteParams(),
+                  forbidden,
+                  {},
+                  sn_worker,
+                  nt::RTLevel::Base,
+                  2_min,
+                  8640,
+                  10,
+                  0);
+
+    // get the response
+    pbnavitia::Response resp = pb_creator1.get_response();
+    BOOST_REQUIRE_EQUAL(resp.response_type(), pbnavitia::ITINERARY_FOUND);
+    BOOST_REQUIRE_EQUAL(resp.journeys_size(), 1);
+
+    // Journey
+    pbnavitia::Journey journey = resp.journeys(0);
+    BOOST_REQUIRE_EQUAL(journey.sections_size(), 1);
+    pbnavitia::Section section = journey.sections(0);
+    BOOST_CHECK_EQUAL(section.type(), pbnavitia::SectionType::PUBLIC_TRANSPORT);
+    BOOST_CHECK_EQUAL(section.origin().stop_point().name(), "stop_point:sa1:sp1");
+    BOOST_CHECK_EQUAL(section.destination().stop_point().name(), "stop_point:sa2:sp2");
+    BOOST_CHECK_EQUAL(journey.departure_date_time(), "20180309T080100"_pts);
+    BOOST_CHECK_EQUAL(journey.arrival_date_time(), "20180309T081000"_pts);
+
+
+    //-----------------------------------
+    // Case 2 : Request with min_nb_journeys = 4, with clockwise = true
+
+    uint32_t min_nb_journeys = 4;
+
+    // send request
+    navitia::PbCreator pb_creator2(data_ptr, "20180309T080000"_dt, null_time_period);
+    make_response(pb_creator2,
+                  raptor,
+                  origin,
+                  destination,
+                  {ntest::to_posix_timestamp("20180309T080000")},
+                  true,
+                  navitia::type::AccessibiliteParams(),
+                  forbidden,
+                  {},
+                  sn_worker,
+                  nt::RTLevel::Base,
+                  2_min,
+                  8640,
+                  10,
+                  0,
+                  0,
+                  0,
+                  min_nb_journeys);
+
+    // get the response
+    resp = pb_creator2.get_response();
+    BOOST_REQUIRE_EQUAL(resp.response_type(), pbnavitia::ITINERARY_FOUND);
+    BOOST_REQUIRE_EQUAL(resp.journeys_size(), 4);
+
+    auto journeys = sort_journeys(resp);
+
+    // Journey 1
+    journey = journeys[0];
+    BOOST_REQUIRE_EQUAL(journey.sections_size(), 1);
+    section = journey.sections(0);
+    BOOST_CHECK_EQUAL(section.type(), pbnavitia::SectionType::PUBLIC_TRANSPORT);
+    BOOST_CHECK_EQUAL(section.origin().stop_point().name(), "stop_point:sa1:sp1");
+    BOOST_CHECK_EQUAL(section.destination().stop_point().name(), "stop_point:sa2:sp2");
+    BOOST_CHECK_EQUAL(journey.departure_date_time(), "20180309T080100"_pts);
+    BOOST_CHECK_EQUAL(journey.arrival_date_time(), "20180309T081000"_pts);
+
+     // Journey 2
+    journey = journeys[1];
+    BOOST_REQUIRE_EQUAL(journey.sections_size(), 1);
+    section = journey.sections(0);
+    BOOST_CHECK_EQUAL(section.type(), pbnavitia::SectionType::PUBLIC_TRANSPORT);
+    BOOST_CHECK_EQUAL(section.origin().stop_point().name(), "stop_point:sa1:sp1");
+    BOOST_CHECK_EQUAL(section.destination().stop_point().name(), "stop_point:sa2:sp2");
+    BOOST_CHECK_EQUAL(journey.departure_date_time(), "20180309T080300"_pts);
+    BOOST_CHECK_EQUAL(journey.arrival_date_time(), "20180309T081200"_pts);
+
+     // Journey 3
+    journey = journeys[2];
+    BOOST_REQUIRE_EQUAL(journey.sections_size(), 1);
+    section = journey.sections(0);
+    BOOST_CHECK_EQUAL(section.type(), pbnavitia::SectionType::PUBLIC_TRANSPORT);
+    BOOST_CHECK_EQUAL(section.origin().stop_point().name(), "stop_point:sa1:sp1");
+    BOOST_CHECK_EQUAL(section.destination().stop_point().name(), "stop_point:sa2:sp2");
+    BOOST_CHECK_EQUAL(journey.departure_date_time(), "20180309T080500"_pts);
+    BOOST_CHECK_EQUAL(journey.arrival_date_time(), "20180309T081400"_pts);
+
+     // Journey 4
+    journey = journeys[3];
+    BOOST_REQUIRE_EQUAL(journey.sections_size(), 1);
+    section = journey.sections(0);
+    BOOST_CHECK_EQUAL(section.type(), pbnavitia::SectionType::PUBLIC_TRANSPORT);
+    BOOST_CHECK_EQUAL(section.origin().stop_point().name(), "stop_point:sa1:sp1");
+    BOOST_CHECK_EQUAL(section.destination().stop_point().name(), "stop_point:sa2:sp2");
+    BOOST_CHECK_EQUAL(journey.departure_date_time(), "20180309T080700"_pts);
+    BOOST_CHECK_EQUAL(journey.arrival_date_time(), "20180309T081600"_pts);
+
+
+    //-----------------------------------
+    // Case 3 : Request with min_nb_journeys = 4, with clockwise = false
+
+    min_nb_journeys = 4;
+
+    // send request
+    navitia::PbCreator pb_creator3(data_ptr, "20180309T083000"_dt, null_time_period);
+    make_response(pb_creator3,
+                  raptor,
+                  origin,
+                  destination,
+                  {ntest::to_posix_timestamp("20180309T083000")},
+                  false,
+                  navitia::type::AccessibiliteParams(),
+                  forbidden,
+                  {},
+                  sn_worker,
+                  nt::RTLevel::Base,
+                  2_min,
+                  8640,
+                  10,
+                  0,
+                  0,
+                  0,
+                  min_nb_journeys);
+
+    // get the response
+    resp = pb_creator3.get_response();
+    BOOST_REQUIRE_EQUAL(resp.response_type(), pbnavitia::ITINERARY_FOUND);
+    BOOST_REQUIRE_EQUAL(resp.journeys_size(), 4);
+
+    journeys = sort_journeys(resp);
+
+    // Journey 1
+    journey = journeys[0];
+    BOOST_REQUIRE_EQUAL(journey.sections_size(), 1);
+    section = journey.sections(0);
+    BOOST_CHECK_EQUAL(section.type(), pbnavitia::SectionType::PUBLIC_TRANSPORT);
+    BOOST_CHECK_EQUAL(section.origin().stop_point().name(), "stop_point:sa1:sp1");
+    BOOST_CHECK_EQUAL(section.destination().stop_point().name(), "stop_point:sa2:sp2");
+    BOOST_CHECK_EQUAL(journey.departure_date_time(), "20180309T080100"_pts);
+    BOOST_CHECK_EQUAL(journey.arrival_date_time(), "20180309T081000"_pts);
+
+     // Journey 2
+    journey = journeys[1];
+    BOOST_REQUIRE_EQUAL(journey.sections_size(), 1);
+    section = journey.sections(0);
+    BOOST_CHECK_EQUAL(section.type(), pbnavitia::SectionType::PUBLIC_TRANSPORT);
+    BOOST_CHECK_EQUAL(section.origin().stop_point().name(), "stop_point:sa1:sp1");
+    BOOST_CHECK_EQUAL(section.destination().stop_point().name(), "stop_point:sa2:sp2");
+    BOOST_CHECK_EQUAL(journey.departure_date_time(), "20180309T080300"_pts);
+    BOOST_CHECK_EQUAL(journey.arrival_date_time(), "20180309T081200"_pts);
+
+     // Journey 3
+    journey = journeys[2];
+    BOOST_REQUIRE_EQUAL(journey.sections_size(), 1);
+    section = journey.sections(0);
+    BOOST_CHECK_EQUAL(section.type(), pbnavitia::SectionType::PUBLIC_TRANSPORT);
+    BOOST_CHECK_EQUAL(section.origin().stop_point().name(), "stop_point:sa1:sp1");
+    BOOST_CHECK_EQUAL(section.destination().stop_point().name(), "stop_point:sa2:sp2");
+    BOOST_CHECK_EQUAL(journey.departure_date_time(), "20180309T080500"_pts);
+    BOOST_CHECK_EQUAL(journey.arrival_date_time(), "20180309T081400"_pts);
+
+     // Journey 4
+    journey = journeys[3];
+    BOOST_REQUIRE_EQUAL(journey.sections_size(), 1);
+    section = journey.sections(0);
+    BOOST_CHECK_EQUAL(section.type(), pbnavitia::SectionType::PUBLIC_TRANSPORT);
+    BOOST_CHECK_EQUAL(section.origin().stop_point().name(), "stop_point:sa1:sp1");
+    BOOST_CHECK_EQUAL(section.destination().stop_point().name(), "stop_point:sa2:sp2");
+    BOOST_CHECK_EQUAL(journey.departure_date_time(), "20180309T080700"_pts);
+    BOOST_CHECK_EQUAL(journey.arrival_date_time(), "20180309T081600"_pts);
+
+}
+
+/**
+ * @brief This test aims to highlight the min_nb_journeys option on a journey request
+ * with similar journeys filtering
+ *
+ * min_nb_journeys allows to ask differents same journeys.
+ *
+ * The data for testing :
+ *
+ * Vehicle journey with multiple stops times
+ * date : 2018 03 09
+ *
+ *                   sp1                   sp2
+ *            /-------x---------------------x--------\
+ *           /      - 8:01                - 8:20      \
+ *          /       - 8:02                - 8:21       \
+ *   Start x        - 8:03                - 8:22        x Stop
+ *         |        - 8:04                - 8:23        |
+ *         |                                            |
+ *         |          We add an other way to test       |
+ *         \         similar journeys filtering         /
+ *          \        (Faster but with more walking)    /
+ *           \       sp1                   sp2        /
+ *            \-------x---------------------x--------/
+ *                 - 8:05                - 8:15
+ *
+ *
+ * We create several requests :
+ *
+ * Case 1 : Request with min_nb_journeys = 4 and clockwise = true
+ *          We must have all journeys
+ * Case 2 : Request with min_nb_journeys = 4 and clockwise = false
+ *          We must have all journeys (reverse)
+ */
+BOOST_AUTO_TEST_CASE(journeys_with_min_nb_journeys_with_similar_journeys_filtering) {
+    // Create Builder
+    ed::builder b("20180309");
+
+    // Create Area
+    b.sa("stop_area:sa1")("stop_point:sa1:s1", 2.39592, 48.84848, false)("stop_point:sa1:s2", 2.39592, 48.84858, false);
+    b.sa("stop_area:sa3")("stop_point:sa3:s1", 2.36381, 48.86650, false)("stop_point:sa3:s2", 2.36381, 48.86550, false);
+
+    // jouney 1
+    b.vj("vj1")("stop_point:sa1:s1", "8:00"_t, "8:01"_t)("stop_point:sa3:s1", "8:20"_t, "8:21"_t);
+    b.vj("vj2")("stop_point:sa1:s1", "8:00"_t, "8:02"_t)("stop_point:sa3:s1", "8:21"_t, "8:22"_t);
+    b.vj("vj3")("stop_point:sa1:s1", "8:00"_t, "8:03"_t)("stop_point:sa3:s1", "8:22"_t, "8:23"_t);
+    b.vj("vj4")("stop_point:sa1:s1", "8:00"_t, "8:04"_t)("stop_point:sa3:s1", "8:23"_t, "8:24"_t);
+
+    // journey 2
+    b.vj("vj5")("stop_point:sa1:s2", "8:00"_t, "8:05"_t)("stop_point:sa3:s2", "8:15"_t, "8:16"_t);
+
+    b.finish();
+    b.data->pt_data->sort_and_index();
+    b.data->build_raptor();
+    b.data->build_uri();
+    b.data->build_proximity_list();
+    auto prod_date = boost::gregorian::date(2018, 3, 9);
+    auto prod_len = boost::gregorian::days(1);
+    b.data->meta->production_date = boost::gregorian::date_period(prod_date, prod_len);
+
+    // create Raptor
+    nr::RAPTOR raptor(*(b.data));
+
+     // from (nation)
+    navitia::type::EntryPoint origin(navitia::type::Type_e::Coord, "from_coord");
+    origin.streetnetwork_params.max_duration = navitia::time_duration(boost::date_time::pos_infin);
+    origin.coordinates.set_lon(2.39592);
+    origin.coordinates.set_lat(48.84838);
+
+    // to (republique)
+    navitia::type::EntryPoint destination(navitia::type::Type_e::Coord, "to_coord");
+    destination.streetnetwork_params.max_duration = navitia::time_duration(boost::date_time::pos_infin);
+    destination.coordinates.set_lon(2.36381);
+    destination.coordinates.set_lat(48.86750);
+
+    std::vector<std::string> forbidden;
+    ng::StreetNetwork sn_worker(*b.data->geo_ref);
+
+    //-----------------------------------
+    // Case 1 : Request with min_nb_journeys = 4, with clockwise = true
+
+    uint32_t min_nb_journeys = 4;
+    bool clockwise = true;
+    auto * data_ptr = b.data.get();
+
+    // send request
+    navitia::PbCreator pb_creator2(data_ptr, "20180309T080000"_dt, null_time_period);
+    make_response(pb_creator2,
+                  raptor,
+                  origin,
+                  destination,
+                  {ntest::to_posix_timestamp("20180309T080000")},
+                  clockwise,
+                  navitia::type::AccessibiliteParams(),
+                  forbidden,
+                  {},
+                  sn_worker,
+                  nt::RTLevel::Base,
+                  2_min,
+                  8640,
+                  10,
+                  0,
+                  0,
+                  0,
+                  min_nb_journeys);
+
+    // get the response
+    auto resp = pb_creator2.get_response();
+    BOOST_REQUIRE_EQUAL(resp.response_type(), pbnavitia::ITINERARY_FOUND);
+    BOOST_REQUIRE_EQUAL(resp.journeys_size(), 4);
+
+    auto journeys = sort_journeys_by(resp, JourneySectionCompare());
+
+    // Journey 1
+    auto journey = journeys[0];
+    BOOST_REQUIRE_EQUAL(journey.sections_size(), 3);
+    auto section = journey.sections(1);
+    BOOST_CHECK_EQUAL(section.type(), pbnavitia::SectionType::PUBLIC_TRANSPORT);
+    BOOST_CHECK_EQUAL(section.origin().stop_point().name(), "stop_point:sa1:s2");
+    BOOST_CHECK_EQUAL(section.destination().stop_point().name(), "stop_point:sa3:s2");
+    BOOST_CHECK_EQUAL(section.begin_date_time(), "20180309T080500"_pts);
+    BOOST_CHECK_EQUAL(section.end_date_time(), "20180309T081500"_pts);
+
+    // Journey 2
+    journey = journeys[1];
+    BOOST_REQUIRE_EQUAL(journey.sections_size(), 3);
+    section = journey.sections(1);
+    BOOST_CHECK_EQUAL(section.type(), pbnavitia::SectionType::PUBLIC_TRANSPORT);
+    BOOST_CHECK_EQUAL(section.origin().stop_point().name(), "stop_point:sa1:s1");
+    BOOST_CHECK_EQUAL(section.destination().stop_point().name(), "stop_point:sa3:s1");
+    BOOST_CHECK_EQUAL(section.begin_date_time(), "20180309T080100"_pts);
+    BOOST_CHECK_EQUAL(section.end_date_time(), "20180309T082000"_pts);
+
+    // Journey 3
+    journey = journeys[2];
+    BOOST_REQUIRE_EQUAL(journey.sections_size(), 3);
+    section = journey.sections(1);
+    BOOST_CHECK_EQUAL(section.type(), pbnavitia::SectionType::PUBLIC_TRANSPORT);
+    BOOST_CHECK_EQUAL(section.origin().stop_point().name(), "stop_point:sa1:s1");
+    BOOST_CHECK_EQUAL(section.destination().stop_point().name(), "stop_point:sa3:s1");
+    BOOST_CHECK_EQUAL(section.begin_date_time(), "20180309T080200"_pts);
+    BOOST_CHECK_EQUAL(section.end_date_time(), "20180309T082100"_pts);
+
+    // Journey 4
+    journey = journeys[3];
+    BOOST_REQUIRE_EQUAL(journey.sections_size(), 3);
+    section = journey.sections(1);
+    BOOST_CHECK_EQUAL(section.type(), pbnavitia::SectionType::PUBLIC_TRANSPORT);
+    BOOST_CHECK_EQUAL(section.origin().stop_point().name(), "stop_point:sa1:s1");
+    BOOST_CHECK_EQUAL(section.destination().stop_point().name(), "stop_point:sa3:s1");
+    BOOST_CHECK_EQUAL(section.begin_date_time(), "20180309T080300"_pts);
+    BOOST_CHECK_EQUAL(section.end_date_time(), "20180309T082200"_pts);
+
+    //-----------------------------------
+    // Case 2 : Request with min_nb_journeys = 4, with clockwise = false
+
+    min_nb_journeys = 4;
+    clockwise = false;
+
+    // send request
+    navitia::PbCreator pb_creator3(data_ptr, "20180309T083000"_dt, null_time_period);
+    make_response(pb_creator3,
+                  raptor,
+                  origin,
+                  destination,
+                  {ntest::to_posix_timestamp("20180309T083000")},
+                  clockwise,
+                  navitia::type::AccessibiliteParams(),
+                  forbidden,
+                  {},
+                  sn_worker,
+                  nt::RTLevel::Base,
+                  2_min,
+                  8640,
+                  10,
+                  0,
+                  0,
+                  0,
+                  min_nb_journeys);
+
+    // get the response
+    resp = pb_creator3.get_response();
+    BOOST_REQUIRE_EQUAL(resp.response_type(), pbnavitia::ITINERARY_FOUND);
+    BOOST_REQUIRE_EQUAL(resp.journeys_size(), 4);
+
+    journeys = sort_journeys_by(resp, JourneySectionCompare());
+
+    // Journey 1
+    journey = journeys[0];
+    BOOST_REQUIRE_EQUAL(journey.sections_size(), 3);
+    section = journey.sections(1);
+    BOOST_CHECK_EQUAL(section.type(), pbnavitia::SectionType::PUBLIC_TRANSPORT);
+    BOOST_CHECK_EQUAL(section.origin().stop_point().name(), "stop_point:sa1:s2");
+    BOOST_CHECK_EQUAL(section.destination().stop_point().name(), "stop_point:sa3:s2");
+    BOOST_CHECK_EQUAL(section.begin_date_time(), "20180309T080500"_pts);
+    BOOST_CHECK_EQUAL(section.end_date_time(), "20180309T081500"_pts);
+
+    // Journey 2
+    journey = journeys[1];
+    BOOST_REQUIRE_EQUAL(journey.sections_size(), 3);
+    section = journey.sections(1);
+    BOOST_CHECK_EQUAL(section.type(), pbnavitia::SectionType::PUBLIC_TRANSPORT);
+    BOOST_CHECK_EQUAL(section.origin().stop_point().name(), "stop_point:sa1:s1");
+    BOOST_CHECK_EQUAL(section.destination().stop_point().name(), "stop_point:sa3:s1");
+    BOOST_CHECK_EQUAL(section.begin_date_time(), "20180309T080200"_pts);
+    BOOST_CHECK_EQUAL(section.end_date_time(), "20180309T082100"_pts);
+
+    // Journey 3
+    journey = journeys[2];
+    BOOST_REQUIRE_EQUAL(journey.sections_size(), 3);
+    section = journey.sections(1);
+    BOOST_CHECK_EQUAL(section.type(), pbnavitia::SectionType::PUBLIC_TRANSPORT);
+    BOOST_CHECK_EQUAL(section.origin().stop_point().name(), "stop_point:sa1:s1");
+    BOOST_CHECK_EQUAL(section.destination().stop_point().name(), "stop_point:sa3:s1");
+    BOOST_CHECK_EQUAL(section.begin_date_time(), "20180309T080300"_pts);
+    BOOST_CHECK_EQUAL(section.end_date_time(), "20180309T082200"_pts);
+
+    // Journey 4
+    journey = journeys[3];
+    BOOST_REQUIRE_EQUAL(journey.sections_size(), 3);
+    section = journey.sections(1);
+    BOOST_CHECK_EQUAL(section.type(), pbnavitia::SectionType::PUBLIC_TRANSPORT);
+    BOOST_CHECK_EQUAL(section.origin().stop_point().name(), "stop_point:sa1:s1");
+    BOOST_CHECK_EQUAL(section.destination().stop_point().name(), "stop_point:sa3:s1");
+    BOOST_CHECK_EQUAL(section.begin_date_time(), "20180309T080400"_pts);
+    BOOST_CHECK_EQUAL(section.end_date_time(), "20180309T082300"_pts);
+}
+
+namespace {
+
+    nr::NightBusFilter::Params get_default_filter_params() {
+        return  nr::NightBusFilter::Params {
+                    navitia::DateTimeUtils::set(0, "08:00"_t),
+                    true,
+                    nr::NightBusFilter::default_max_factor,
+                    nr::NightBusFilter::default_base_factor};
+    }
+
+    std::tuple<nr::Journey, nr::Journey> build_night_bus_journeys(ed::builder & b) {
+
+        b.vj("vj1")
+            ("A1", "09:00"_t, "09:00"_t)("C1", "12:00"_t, "12:00"_t);
+
+        b.vj("vj2")
+            ("B1", "22:00"_t, "22:00"_t)("C1", "23:00"_t, "23:00"_t);
+
+        nt::PT_Data & d = *b.data->pt_data;
+        auto stl1 = d.vehicle_journeys[0]->stop_time_list;
+        auto stl2 = d.vehicle_journeys[1]->stop_time_list;
+
+        nr::Journey j1;
+        j1.sections.push_back(nr::Journey::Section(
+            stl1[0], navitia::DateTimeUtils::set(0, "09:00"_t),
+            stl1[1], navitia::DateTimeUtils::set(0, "10:00"_t)
+        ));
+        j1.departure_dt = navitia::DateTimeUtils::set(0, "08:30"_t);
+        j1.arrival_dt = navitia::DateTimeUtils::set(0, "10:30"_t);
+
+        nr::Journey j2;
+        j2.sections.push_back(nr::Journey::Section(
+            stl2[0], navitia::DateTimeUtils::set(0, "22:00"_t),
+            stl2[1], navitia::DateTimeUtils::set(0, "23:00"_t)
+        ));
+        j2.departure_dt = navitia::DateTimeUtils::set(0, "21:55"_t);
+        j2.arrival_dt = navitia::DateTimeUtils::set(0, "23:10"_t);
+
+        return std::make_tuple(j1, j2);
+    }
+
+    class Night_bus_fixture {
+    private:
+        ed::builder b;
+
+    public:
+        nr::NightBusFilter::Params filter_params;
+        nr::Journey j1, j2;
+        Night_bus_fixture():b("20120614") {
+            filter_params = get_default_filter_params();
+            std::tie(j1, j2) = build_night_bus_journeys(b);
+        }
+    };
+}
+
+BOOST_FIXTURE_TEST_CASE(night_bus_should_be_treated_as_way_later, Night_bus_fixture)
+{
+    BOOST_CHECK_EQUAL(nr::is_way_later(j1, j2, filter_params), false);
+    BOOST_CHECK_EQUAL(nr::is_way_later(j2, j1, filter_params), true);
+}
+
+BOOST_FIXTURE_TEST_CASE(night_bus_should_treated_as_way_later_anti_clockwise, Night_bus_fixture)
+{
+    filter_params.requested_datetime = navitia::DateTimeUtils::set(0, "23:30"_t);
+    filter_params.clockwise = false;
+
+    BOOST_CHECK_EQUAL(nr::is_way_later(j1, j2, filter_params), true);
+    BOOST_CHECK_EQUAL(nr::is_way_later(j2, j1, filter_params), false);
+}
+
+BOOST_FIXTURE_TEST_CASE(night_bus_filter_should_be_order_agnostic, Night_bus_fixture)
+{
+    {
+        nr::RAPTOR::Journeys journeys = {j1, j2};
+        nr::filter_late_journeys(journeys, filter_params);
+
+        BOOST_REQUIRE_EQUAL(journeys.size(), 1);
+
+        auto vj = journeys.begin()->sections[0].get_in_st->vehicle_journey;
+        BOOST_CHECK_EQUAL(vj->uri, "vj:vj1:0");
+    }
+    {
+        nr::RAPTOR::Journeys journeys = {j2, j1};
+        nr::filter_late_journeys(journeys, filter_params);
+
+        BOOST_REQUIRE_EQUAL(journeys.size(), 1);
+
+        auto vj = journeys.begin()->sections[0].get_in_st->vehicle_journey;
+        BOOST_CHECK_EQUAL(vj->uri, "vj:vj1:0");
+    }
+}
+
+BOOST_FIXTURE_TEST_CASE(night_bus_filter_change_parameters, Night_bus_fixture)
+{
+    // With the default parameters, the request departure is 08:00
+    // The max_pseudo_duration is 7h, so journeys departing after 15:00 are deleted 
+    nr::NightBusFilter::Params filter_params = get_default_filter_params();
+    {
+        nr::RAPTOR::Journeys journeys = {j1, j2};
+        nr::filter_late_journeys(journeys, filter_params);
+
+        BOOST_REQUIRE_EQUAL(journeys.size(), 1);
+
+        auto vj = journeys.begin()->sections[0].get_in_st->vehicle_journey;
+        BOOST_CHECK_EQUAL(vj->uri, "vj:vj1:0");
+    }
+
+    // With the custom parameters, the max_pseudo_duration is 15h
+    // The second vj departing at 22:00 is now kept with the request departure at 08:00
+    filter_params.max_factor = 7.0;
+    filter_params.base_factor = 3600;
+    {
+        nr::RAPTOR::Journeys journeys = {j1, j2};
+        nr::filter_late_journeys(journeys, filter_params);
+
+        BOOST_REQUIRE_EQUAL(journeys.size(), 2);
+
+        auto vj1 = journeys.front().sections[0].get_in_st->vehicle_journey;
+        BOOST_CHECK_EQUAL(vj1->uri, "vj:vj1:0");
+        auto vj2 = journeys.back().sections[0].get_in_st->vehicle_journey;
+        BOOST_CHECK_EQUAL(vj2->uri, "vj:vj2:1");
+    }
+}
+
+BOOST_FIXTURE_TEST_CASE(should_filter_late_journeys_with_empty_list, Night_bus_fixture)
+{
+    nr::RAPTOR::Journeys journeys;
+
+    BOOST_CHECK_NO_THROW(
+        nr::filter_late_journeys(journeys, filter_params)
+    );
+}
+
+/**
+ * @brief This test aims to highlight the timeframe_duration option on a journey request
+ *
+ * The data for testing :
+ *
+ * Vehicle journey with multiple stops times
+ * date : 2018 03 09
+ *
+ *                   sa1                   sa3
+ *                  x------------------------x
+ *               - 08:00:00               - 08:05:00
+ *               - 08:10:00               - 08:15:00
+ *               - 08:20:00               - 08:25:00
+ *               - 08:30:00               - 08:35:00
+ *                             ... x20
+ *               - 08:00:00               - 08:05:00 (24H after the first)
+ *
+ */
+BOOST_AUTO_TEST_CASE(journeys_with_time_frame_duration) {
+    // Create Builder
+    ed::builder b("20180309");
+
+    // Create Area
+    b.sa("stop_area:sa1")("stop_point:sa1:s1", 2.39592, 48.84848, false);
+    b.sa("stop_area:sa3")("stop_point:sa3:s1", 2.36381, 48.86650, false);
+
+    // Create multi VJ
+    auto dep_time = "08:00:00"_t;
+    auto arr_time = "08:05:00"_t;
+    for (int nb = 0; nb < 20; ++nb) {
+        b.vj("A", "1", "", false, "vjC_" + std::to_string(nb))
+                ("stop_point:sa1:s1", dep_time + nb * "00:10::00"_t)
+                ("stop_point:sa3:s1", arr_time + nb * "00:10::00"_t);
+    }
+    // Add a VJ 24H after to test the time frame duration max limit (24H)
+    b.vj("A", "1", "", false, "vjC_out_of_24_bound")
+                ("stop_point:sa1:s1", "08:00:00"_t)
+                ("stop_point:sa3:s1", "08:05:00"_t);
+
+    b.finish();
+    b.data->pt_data->sort_and_index();
+    b.data->build_raptor();
+    b.data->build_uri();
+    b.data->build_proximity_list();
+    auto prod_date = boost::gregorian::date(2018, 3, 9);
+    auto prod_len = boost::gregorian::days(1);
+    b.data->meta->production_date = boost::gregorian::date_period(prod_date, prod_len);
+
+    // create Raptor
+    nr::RAPTOR raptor(*(b.data));
+
+    // from
+    navitia::type::EntryPoint origin(navitia::type::Type_e::StopPoint, "stop_point:sa1:s1");
+
+    // to
+    navitia::type::EntryPoint destination(navitia::type::Type_e::StopPoint, "stop_point:sa3:s1");
+
+    std::vector<std::string> forbidden;
+    ng::StreetNetwork sn_worker(*b.data->geo_ref);
+
+    auto * data_ptr = b.data.get();
+
+    //-----------------------------------
+    // Case 1 :
+    // clockwise = true
+    // timeframe_duration = 0
+    // timeframe_max_bound = 24H (very late search limit)
+    bool clockwise = true;
+
+    // send request
+    navitia::PbCreator pb_creator_case1(data_ptr, "20180309T075900"_dt, null_time_period);
+    make_response(pb_creator_case1,
+                  raptor,
+                  origin,
+                  destination,
+                  {ntest::to_posix_timestamp("20180309T075900")},
+                  clockwise,
+                  navitia::type::AccessibiliteParams(),
+                  forbidden,
+                  {},
+                  sn_worker,
+                  nt::RTLevel::Base,
+                  2_min,
+                  24*60*60,
+                  10,
+                  0,
+                  0,
+                  0);
+
+    // get the response
+    auto resp = pb_creator_case1.get_response();
+    BOOST_REQUIRE_EQUAL(resp.response_type(), pbnavitia::ITINERARY_FOUND);
+    BOOST_REQUIRE_GE(resp.journeys_size(), 1);
+
+    //-----------------------------------
+    // Case 2 :
+    // clockwise = true
+    // min_nb_journeys = none
+    // timeframe_max_bound = 24H (very late search limit)
+    //
+    // timeframe_duration = 10*60 (10 min)
+    // We have a timeframe duration = 10 min related to the first journeys (08:00:00),
+    // Even though, the second journey's departure is later than the timeframe's limit
+    // we still keep it, because it satisfies the min_nb_journey criteria
+    uint32_t min_nb_journeys = 0;
+    uint64_t timeframe_duration = 10*60;
+    clockwise = true;
+
+    // send request
+    navitia::PbCreator pb_creator_case2(data_ptr, "20180309T075900"_dt, null_time_period);
+    make_response(pb_creator_case2,
+                  raptor,
+                  origin,
+                  destination,
+                  {ntest::to_posix_timestamp("20180309T075900")},
+                  clockwise,
+                  navitia::type::AccessibiliteParams(),
+                  forbidden,
+                  {},
+                  sn_worker,
+                  nt::RTLevel::Base,
+                  2_min,
+                  24*60*60,
+                  10,
+                  0,
+                  0,
+                  0,
+                  boost::none,
+                  1.5,
+                  900,
+                  timeframe_duration);
+
+    // get the response
+    resp = pb_creator_case2.get_response();
+    BOOST_REQUIRE_EQUAL(resp.response_type(), pbnavitia::ITINERARY_FOUND);
+    BOOST_REQUIRE_GE(resp.journeys_size(), 1);
+
+    auto journeys = sort_journeys_by(resp, JourneySectionCompare());
+
+     // Journey 1
+    auto journey = journeys[0];
+    BOOST_REQUIRE_EQUAL(journey.sections_size(), 1);
+    auto section = journey.sections(0);
+    BOOST_CHECK_EQUAL(section.type(), pbnavitia::SectionType::PUBLIC_TRANSPORT);
+    BOOST_CHECK_EQUAL(section.begin_date_time(), "20180309T080000"_pts);
+    BOOST_CHECK_EQUAL(section.end_date_time(), "20180309T080500"_pts);
+
+    //-----------------------------------
+    // Case 3 :
+    // clockwise = false !!
+    // timeframe_max_bound = 24H (very late search limit)
+    //
+    // timeframe_duration = 20*60 (20 min)
+    // We have a timeframe duration = 20 min related to the first
+    // journeys (08:30:00), as explained above, even though some journeys' arrivals are
+    // not in the interval, we still keep them
+    // The response must contain at least 2 journeys.
+    min_nb_journeys = 0;
+    timeframe_duration = 20*60;
+    clockwise = false;
+
+    // send request
+    navitia::PbCreator pb_creator_case3(data_ptr, "20180309T080000"_dt, null_time_period);
+    make_response(pb_creator_case3,
+                  raptor,
+                  origin,
+                  destination,
+                  {ntest::to_posix_timestamp("20180309T083500")},
+                  clockwise,
+                  navitia::type::AccessibiliteParams(),
+                  forbidden,
+                  {},
+                  sn_worker,
+                  nt::RTLevel::Base,
+                  2_min,
+                  24*60*60,
+                  10,
+                  0,
+                  0,
+                  0,
+                  boost::none,
+                  1.5,
+                  900,
+                  timeframe_duration);
+
+    // get the response
+    resp = pb_creator_case3.get_response();
+    BOOST_REQUIRE_EQUAL(resp.response_type(), pbnavitia::ITINERARY_FOUND);
+    BOOST_REQUIRE_GE(resp.journeys_size(), 2);
+
+    journeys = sort_journeys_by(resp, JourneySectionCompare());
+
+    journey = journeys[0];
+    BOOST_REQUIRE_EQUAL(journey.sections_size(), 1);
+    section = journey.sections(0);
+    BOOST_CHECK_EQUAL(section.type(), pbnavitia::SectionType::PUBLIC_TRANSPORT);
+    BOOST_CHECK_EQUAL(section.begin_date_time(), "20180309T081000"_pts);
+    BOOST_CHECK_EQUAL(section.end_date_time(), "20180309T081500"_pts);
+
+    journey = journeys[1];
+    BOOST_REQUIRE_EQUAL(journey.sections_size(), 1);
+    section = journey.sections(0);
+    BOOST_CHECK_EQUAL(section.type(), pbnavitia::SectionType::PUBLIC_TRANSPORT);
+    BOOST_CHECK_EQUAL(section.begin_date_time(), "20180309T082000"_pts);
+    BOOST_CHECK_EQUAL(section.end_date_time(), "20180309T082500"_pts);
+
+    journey = journeys[2];
+    BOOST_REQUIRE_EQUAL(journey.sections_size(), 1);
+    section = journey.sections(0);
+    BOOST_CHECK_EQUAL(section.type(), pbnavitia::SectionType::PUBLIC_TRANSPORT);
+    BOOST_CHECK_EQUAL(section.begin_date_time(), "20180309T083000"_pts);
+    BOOST_CHECK_EQUAL(section.end_date_time(), "20180309T083500"_pts);
+
+    //-----------------------------------
+    // Case 4 :
+    // clockwise = true
+    // timeframe_duration = 60*60 (1H)
+    // timeframe_max_bound = 24H (very late search limit)
+    //
+    // We have a time frame duration = 1H related to the first Journeys (08:30:00) and
+    // a min_nb_journeys = 20.
+    // We don't have 20 journeys in 1H, so we continue until 20 journeys as
+    // min_nb_journeys is the limiting criteria.
+    // The response must contain 20 journeys.
+    min_nb_journeys = 20;
+    timeframe_duration = 1*60*60;
+    clockwise = true;
+
+    // send request
+    navitia::PbCreator pb_creator_case4(data_ptr, "20180309T075900"_dt, null_time_period);
+    make_response(pb_creator_case4,
+                  raptor,
+                  origin,
+                  destination,
+                  {ntest::to_posix_timestamp("20180309T075900")},
+                  clockwise,
+                  navitia::type::AccessibiliteParams(),
+                  forbidden,
+                  {},
+                  sn_worker,
+                  nt::RTLevel::Base,
+                  2_min,
+                  24*60*60,
+                  10,
+                  0,
+                  0,
+                  0,
+                  min_nb_journeys,
+                  3,
+                  6000,
+                  timeframe_duration);
+
+    // get the response
+    resp = pb_creator_case4.get_response();
+    BOOST_REQUIRE_EQUAL(resp.response_type(), pbnavitia::ITINERARY_FOUND);
+    BOOST_REQUIRE_EQUAL(resp.journeys_size(), 20);
+
+    //-----------------------------------
+    // Case 5 :
+    // clockwise = true
+    // timeframe_duration = 4*60*60 (4H)
+    // timeframe_max_bound = 1H (very late search limit)
+    //
+    // the limit max is less than timeframe_duration.
+    // We compute until the max limit
+    // The response must contain only 6 journeys.
+    min_nb_journeys = 0;
+    timeframe_duration = 60*60*4; // 4H
+    clockwise = true;
+    uint32_t timeframe_max_duration = 60*60;
+
+    // send request
+    navitia::PbCreator pb_creator_case5(data_ptr, "20180309T075900"_dt, null_time_period);
+    make_response(pb_creator_case5,
+                  raptor,
+                  origin,
+                  destination,
+                  {ntest::to_posix_timestamp("20180309T075900")},
+                  clockwise,
+                  navitia::type::AccessibiliteParams(),
+                  forbidden,
+                  {},
+                  sn_worker,
+                  nt::RTLevel::Base,
+                  2_min,
+                  timeframe_max_duration,
+                  10,
+                  0,
+                  0,
+                  0,
+                  boost::none,
+                  1.5,
+                  900,
+                  timeframe_duration);
+
+    // get the response
+    resp = pb_creator_case5.get_response();
+    BOOST_REQUIRE_EQUAL(resp.response_type(), pbnavitia::ITINERARY_FOUND);
+    BOOST_REQUIRE_EQUAL(resp.journeys_size(), 6);
+
+    //-----------------------------------
+    // Case 6 :
+    // clockwise = true
+    // min_nb_journeys = 2
+    // timeframe_duration = 40*60 (40min)
+    // timeframe_max_bound = 1H
+    //
+    // the reponse should contain at least 4 journeys
+    min_nb_journeys = 2;
+    timeframe_duration = 40*60; // 40 min
+    clockwise = true;
+    timeframe_max_duration = 60*60;
+
+    // send request
+    navitia::PbCreator pb_creator_case6(data_ptr, "20180309T075900"_dt, null_time_period);
+    make_response(pb_creator_case6,
+                  raptor,
+                  origin,
+                  destination,
+                  {ntest::to_posix_timestamp("20180309T075900")},
+                  clockwise,
+                  navitia::type::AccessibiliteParams(),
+                  forbidden,
+                  {},
+                  sn_worker,
+                  nt::RTLevel::Base,
+                  2_min,
+                  timeframe_max_duration,
+                  10,
+                  0,
+                  0,
+                  0,
+                  boost::none,
+                  1.5,
+                  900,
+                  timeframe_duration);
+
+    // get the response
+    resp = pb_creator_case6.get_response();
+    BOOST_REQUIRE_EQUAL(resp.response_type(), pbnavitia::ITINERARY_FOUND);
+    BOOST_REQUIRE_GE(resp.journeys_size(), 4);
+
+    //-----------------------------------
+    // Case 7 :
+    // clockwise = true
+    // min_nb_journeys = 10
+    // timeframe_duration = 1 day
+    // timeframe_max_bound = 10 min
+    //
+    // We test the case where max_duraion < timeframe_duration
+    // Even though we ask for 10 journeys, the search bound is limited to 10min
+    // Raptor can find only one solution within ten minutes
+    min_nb_journeys = 10;
+    timeframe_duration = 24*60*60; // 1 day
+    clockwise = true;
+    timeframe_max_duration = 10*60; // 10min
+
+    // send request
+    navitia::PbCreator pb_creator_case7(data_ptr, "20180309T075900"_dt, null_time_period);
+    make_response(pb_creator_case7,
+                  raptor,
+                  origin,
+                  destination,
+                  {ntest::to_posix_timestamp("20180309T075900")},
+                  clockwise,
+                  navitia::type::AccessibiliteParams(),
+                  forbidden,
+                  {},
+                  sn_worker,
+                  nt::RTLevel::Base,
+                  2_min,
+                  timeframe_max_duration,
+                  10,
+                  0,
+                  0,
+                  0,
+                  boost::none,
+                  1.5,
+                  900,
+                  timeframe_duration);
+
+    // get the response
+    resp = pb_creator_case7.get_response();
+    BOOST_REQUIRE_EQUAL(resp.response_type(), pbnavitia::ITINERARY_FOUND);
+    BOOST_REQUIRE_EQUAL(resp.journeys_size(), 1);
+
+    //-----------------------------------
+    // Case 8 :
+    // clockwise = true
+    // min_nb_journeys = 5
+    // timeframe_duration = 1 day
+    // timeframe_max_bound = 10s
+    //
+    // max_duration is too small, no solution is found
+    min_nb_journeys = 5;
+    timeframe_duration = 24*60*60; // 1 day
+    clockwise = true;
+    timeframe_max_duration = 10; // 10 seconds
+
+    // send request
+    navitia::PbCreator pb_creator_case8(data_ptr, "20180309T075900"_dt, null_time_period);
+    make_response(pb_creator_case8,
+                  raptor,
+                  origin,
+                  destination,
+                  {ntest::to_posix_timestamp("20180309T075900")},
+                  clockwise,
+                  navitia::type::AccessibiliteParams(),
+                  forbidden,
+                  {},
+                  sn_worker,
+                  nt::RTLevel::Base,
+                  2_min,
+                  timeframe_max_duration,
+                  10,
+                  0,
+                  0,
+                  0,
+                  boost::none,
+                  1.5,
+                  900,
+                  timeframe_duration);
+
+    // get the response
+    resp = pb_creator_case8.get_response();
+    BOOST_REQUIRE_EQUAL(resp.response_type(), pbnavitia::NO_SOLUTION);
+}
+
+
+
+//basic journey without min_nb_journey nor timeframe_limit
+BOOST_AUTO_TEST_CASE(keep_going_tests_simple) {
+    //no solution found: stop the search
+    BOOST_CHECK_EQUAL(navitia::routing::keep_going(0, //total_nb_journeys
+                                                   1, //nb_try
+                                                   true, //clockwise
+                                                   navitia::DateTimeUtils::set(1, 2), //request_date_secs
+                                                   boost::none, //min_nb_journeys
+                                                   boost::none, //timeframe_limit
+                                                   10), //max_transfers
+            false);
+
+    //some solutions have been found: stop the search
+    BOOST_CHECK_EQUAL(navitia::routing::keep_going(3, //total_nb_journeys
+                                                   1, //nb_try
+                                                   true, //clockwise
+                                                   navitia::DateTimeUtils::set(1, 2), //request_date_secs
+                                                   boost::none, //min_nb_journeys
+                                                   boost::none, //timeframe_limit
+                                                   10), //max_transfers
+            false);
+
+}
+
+//journeys with min_nb_journeys=3
+BOOST_AUTO_TEST_CASE(keep_going_tests_min_nb_journeys) {
+    //only one solution found: continue to search
+    BOOST_CHECK_EQUAL(navitia::routing::keep_going(1, //total_nb_journeys
+                                                   1, //nb_try
+                                                   true, //clockwise
+                                                   navitia::DateTimeUtils::set(1, 2), //request_date_secs
+                                                   3, //min_nb_journeys
+                                                   boost::none, //timeframe_limit
+                                                   10), //max_transfers
+            true);
+
+    //3 solutions found, stop the search
+    BOOST_CHECK_EQUAL(navitia::routing::keep_going(3, //total_nb_journeys
+                                                   1, //nb_try
+                                                   true, //clockwise
+                                                   navitia::DateTimeUtils::set(1, 2), //request_date_secs
+                                                   3, //min_nb_journeys
+                                                   boost::none, //timeframe_limit
+                                                   10), //max_transfers
+            false);
+
+    //only one solution found, but MAX_NB_RAPTOR_CALL is reached: stop the search
+    BOOST_CHECK_EQUAL(navitia::routing::keep_going(1, //total_nb_journeys
+                                                   101, //nb_try
+                                                   true, //clockwise
+                                                   navitia::DateTimeUtils::set(1, 2), //request_date_secs
+                                                   3, //min_nb_journeys
+                                                   boost::none, //timeframe_limit
+                                                   10), //max_transfers
+            false);
+
+    // max_transfers=0, only one solution found
+    // MAX_NB_RAPTOR_CALL is increased since we are in "simple mode": continue the search
+    BOOST_CHECK_EQUAL(navitia::routing::keep_going(1, //total_nb_journeys
+                                                   101, //nb_try
+                                                   true, //clockwise
+                                                   navitia::DateTimeUtils::set(1, 2), //request_date_secs
+                                                   3, //min_nb_journeys
+                                                   boost::none, //timeframe_limit
+                                                   0), //max_transfers
+            true);
+    //we finally stop after 1000 try
+    BOOST_CHECK_EQUAL(navitia::routing::keep_going(1, //total_nb_journeys
+                                                   1001, //nb_try
+                                                   true, //clockwise
+                                                   navitia::DateTimeUtils::set(1, 2), //request_date_secs
+                                                   3, //min_nb_journeys
+                                                   boost::none, //timeframe_limit
+                                                   0), //max_transfers
+            false);
+}
+
+
+//journeys with a timeframe_limit
+BOOST_AUTO_TEST_CASE(keep_going_tests_timeframe) {
+    // request_date_secs < timeframe_limit: continue
+    BOOST_CHECK_EQUAL(navitia::routing::keep_going(1, //total_nb_journeys
+                                                   1, //nb_try
+                                                   true, //clockwise
+                                                   navitia::DateTimeUtils::set(1, 2), //request_date_secs
+                                                   boost::none, //min_nb_journeys
+                                                   navitia::DateTimeUtils::set(1, 900), //timeframe_limit
+                                                   10), //max_transfers
+            true);
+
+    // request_date_secs == timeframe_limit: stop
+    BOOST_CHECK_EQUAL(navitia::routing::keep_going(1, //total_nb_journeys
+                                                   1, //nb_try
+                                                   true, //clockwise
+                                                   navitia::DateTimeUtils::set(1, 900), //request_date_secs
+                                                   boost::none, //min_nb_journeys
+                                                   navitia::DateTimeUtils::set(1, 900), //timeframe_limit
+                                                   10), //max_transfers
+            false);
+
+    // request_date_secs < timeframe_limit but MAX_NB_RAPTOR_CALL is reached: stop the search
+    BOOST_CHECK_EQUAL(navitia::routing::keep_going(1, //total_nb_journeys
+                                                   101, //nb_try
+                                                   true, //clockwise
+                                                   navitia::DateTimeUtils::set(1, 100), //request_date_secs
+                                                   boost::none, //min_nb_journeys
+                                                   navitia::DateTimeUtils::set(1, 900), //timeframe_limit
+                                                   10), //max_transfers
+            false);
+
+    // request_date_secs < timeframe_limit and max_transfers=0 (simple mode)
+    //  MAX_NB_RAPTOR_CALL is increased: continue
+    BOOST_CHECK_EQUAL(navitia::routing::keep_going(1, //total_nb_journeys
+                                                   101, //nb_try
+                                                   true, //clockwise
+                                                   navitia::DateTimeUtils::set(1, 100), //request_date_secs
+                                                   boost::none, //min_nb_journeys
+                                                   navitia::DateTimeUtils::set(1, 900), //timeframe_limit
+                                                   0), //max_transfers
+            true);
+    // last try
+    BOOST_CHECK_EQUAL(navitia::routing::keep_going(1, //total_nb_journeys
+                                                   1000, //nb_try
+                                                   true, //clockwise
+                                                   navitia::DateTimeUtils::set(1, 100), //request_date_secs
+                                                   boost::none, //min_nb_journeys
+                                                   navitia::DateTimeUtils::set(1, 900), //timeframe_limit
+                                                   0), //max_transfers
+            true);
+
+    //after 1001 try: stop
+    BOOST_CHECK_EQUAL(navitia::routing::keep_going(1, //total_nb_journeys
+                                                   1001, //nb_try
+                                                   true, //clockwise
+                                                   navitia::DateTimeUtils::set(1, 100), //request_date_secs
+                                                   boost::none, //min_nb_journeys
+                                                   navitia::DateTimeUtils::set(1, 900), //timeframe_limit
+                                                   0), //max_transfers
+            false);
+    //or before if we reach the timeframe_limit
+    BOOST_CHECK_EQUAL(navitia::routing::keep_going(1, //total_nb_journeys
+                                                   102, //nb_try
+                                                   true, //clockwise
+                                                   navitia::DateTimeUtils::set(1, 900), //request_date_secs
+                                                   boost::none, //min_nb_journeys
+                                                   navitia::DateTimeUtils::set(1, 900), //timeframe_limit
+                                                   0), //max_transfers
+            false);
+}
+
+//journeys with a timeframe_limit
+BOOST_AUTO_TEST_CASE(keep_going_tests_timeframe_and_min_nb_journey) {
+    // request_date_secs < timeframe_limit && total_nb_journeys < min_nb_journeys: continue
+    BOOST_CHECK_EQUAL(navitia::routing::keep_going(1, //total_nb_journeys
+                                                   1, //nb_try
+                                                   true, //clockwise
+                                                   navitia::DateTimeUtils::set(1, 2), //request_date_secs
+                                                   5, //min_nb_journeys
+                                                   navitia::DateTimeUtils::set(1, 900), //timeframe_limit
+                                                   10), //max_transfers
+            true);
+
+    // request_date_secs == timeframe_limit && total_nb_journeys < min_nb_journeys: continue
+    BOOST_CHECK_EQUAL(navitia::routing::keep_going(1, //total_nb_journeys
+                                                   1, //nb_try
+                                                   true, //clockwise
+                                                   navitia::DateTimeUtils::set(1, 900), //request_date_secs
+                                                   5, //min_nb_journeys
+                                                   navitia::DateTimeUtils::set(1, 900), //timeframe_limit
+                                                   10), //max_transfers
+            true);
+
+    // request_date_secs < timeframe_limit && total_nb_journeys == min_nb_journeys: continue
+    BOOST_CHECK_EQUAL(navitia::routing::keep_going(5, //total_nb_journeys
+                                                   1, //nb_try
+                                                   true, //clockwise
+                                                   navitia::DateTimeUtils::set(1, 9), //request_date_secs
+                                                   5, //min_nb_journeys
+                                                   navitia::DateTimeUtils::set(1, 900), //timeframe_limit
+                                                   10), //max_transfers
+            true);
+
+    // request_date_secs == timeframe_limit && total_nb_journeys == min_nb_journeys: continue
+    BOOST_CHECK_EQUAL(navitia::routing::keep_going(5, //total_nb_journeys
+                                                   1, //nb_try
+                                                   true, //clockwise
+                                                   navitia::DateTimeUtils::set(1, 900), //request_date_secs
+                                                   5, //min_nb_journeys
+                                                   navitia::DateTimeUtils::set(1, 900), //timeframe_limit
+                                                   10), //max_transfers
+            false);
+
+    // request_date_secs < timeframe_limit && total_nb_journeys < min_nb_journeys: we try really hard!
+    BOOST_CHECK_EQUAL(navitia::routing::keep_going(1, //total_nb_journeys
+                                                   100, //nb_try
+                                                   true, //clockwise
+                                                   navitia::DateTimeUtils::set(1, 2), //request_date_secs
+                                                   5, //min_nb_journeys
+                                                   navitia::DateTimeUtils::set(1, 900), //timeframe_limit
+                                                   10), //max_transfers
+            true);
+
+    //but we finally give up
+    BOOST_CHECK_EQUAL(navitia::routing::keep_going(1, //total_nb_journeys
+                                                   101, //nb_try
+                                                   true, //clockwise
+                                                   navitia::DateTimeUtils::set(1, 2), //request_date_secs
+                                                   5, //min_nb_journeys
+                                                   navitia::DateTimeUtils::set(1, 900), //timeframe_limit
+                                                   10), //max_transfers
+            false);
+    // except if it's really easy then we try harder
+    BOOST_CHECK_EQUAL(navitia::routing::keep_going(1, //total_nb_journeys
+                                                   1000, //nb_try
+                                                   true, //clockwise
+                                                   navitia::DateTimeUtils::set(1, 2), //request_date_secs
+                                                   5, //min_nb_journeys
+                                                   navitia::DateTimeUtils::set(1, 900), //timeframe_limit
+                                                   0), //max_transfers
+            true);
+
+    // until we stop trying
+    BOOST_CHECK_EQUAL(navitia::routing::keep_going(1, //total_nb_journeys
+                                                   1001, //nb_try
+                                                   true, //clockwise
+                                                   navitia::DateTimeUtils::set(1, 2), //request_date_secs
+                                                   5, //min_nb_journeys
+                                                   navitia::DateTimeUtils::set(1, 900), //timeframe_limit
+                                                   0), //max_transfers
+            false);
+
 }

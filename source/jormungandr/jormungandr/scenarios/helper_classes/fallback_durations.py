@@ -26,6 +26,7 @@
 # IRC #navitia on freenode
 # https://groups.google.com/d/forum/navitia
 # www.navitia.io
+
 from __future__ import absolute_import
 from . import helper_future
 from navitiacommon import response_pb2
@@ -95,9 +96,20 @@ class FallbackDurations:
         # When max_duration_to_pt is 0, there is no need to compute the fallback to pt, except if place is a
         # stop_point or a stop_area
         center_isochrone = self._requested_place_obj
-        free_access = self._places_free_access.wait_and_get()
-        all_free_access = free_access.crowfly | free_access.odt
         proximities_by_crowfly = self._proximities_by_crowfly_pool.wait_and_get(self._mode)
+
+        free_access = self._places_free_access.wait_and_get()
+
+        free_radius_distance = None
+        if self._direct_path_type == StreetNetworkPathType.BEGINNING_FALLBACK:
+            free_radius_distance = self._request.free_radius_from
+        elif self._direct_path_type == StreetNetworkPathType.ENDING_FALLBACK:
+            free_radius_distance = self._request.free_radius_to
+
+        if free_radius_distance is not None:
+            free_access.free_radius.update(p.uri for p in proximities_by_crowfly if p.distance < free_radius_distance)
+
+        all_free_access = free_access.crowfly | free_access.odt | free_access.free_radius
 
         # if a place is freely accessible, there is no need to compute it's access duration in isochrone
         places_isochrone = [p for p in proximities_by_crowfly if p.uri not in all_free_access]
@@ -183,6 +195,7 @@ class FallbackDurationsPool(dict):
             "bike": instance.bike_speed,
             "car": instance.car_speed,
             "bss": instance.bss_speed,
+            "ridesharing": instance.car_no_park_speed,
         }
 
         self._value = {}

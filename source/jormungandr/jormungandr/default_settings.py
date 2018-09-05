@@ -8,6 +8,10 @@ from flask_restful.inputs import boolean
 # path of the configuration file for each instances
 INSTANCES_DIR = os.getenv('JORMUNGANDR_INSTANCES_DIR', '/etc/jormungandr.d')
 
+# Patern that matches Jormungandr configuration files
+# ex: '*.json' will match all json files within "INSTANCES_DIR" directory
+INSTANCES_FILENAME_PATTERN = os.getenv('JORMUNGANDR_INSTANCES_FILENAME_PATTERN', '*.json')
+
 # Start the thread at startup, True in production, False for test environments
 START_MONITORING_THREAD = boolean(os.getenv('JORMUNGANDR_START_MONITORING_THREAD', True))
 
@@ -126,8 +130,8 @@ CIRCUIT_BREAKER_SYNTHESE_TIMEOUT_S = 60  # the circuit breaker retries after thi
 CIRCUIT_BREAKER_MAX_JCDECAUX_FAIL = 4  # max instance call failures before stopping attempt
 CIRCUIT_BREAKER_JCDECAUX_TIMEOUT_S = 60  # the circuit breaker retries after this timeout (in seconds)
 
-CIRCUIT_BREAKER_MAX_STAR_FAIL = 4  # max instance call failures before stopping attempt
-CIRCUIT_BREAKER_STAR_TIMEOUT_S = 60  # the circuit breaker retries after this timeout (in seconds)
+CIRCUIT_BREAKER_MAX_CAR_PARK_FAIL = 4  # max instance call failures before stopping attempt
+CIRCUIT_BREAKER_CAR_PARK_TIMEOUT_S = 60  # the circuit breaker retries after this timeout (in seconds)
 
 CIRCUIT_BREAKER_MAX_CLEVERAGE_FAIL = 4  # max instance call failures before stopping attempt
 CIRCUIT_BREAKER_CLEVERAGE_TIMEOUT_S = 60  # the circuit breaker retries after this timeout (in seconds)
@@ -146,6 +150,9 @@ CIRCUIT_BREAKER_CYKLEO_TIMEOUT_S = 60  # the circuit breaker retries after this 
 
 CIRCUIT_BREAKER_MAX_INSTANT_SYSTEM_FAIL = 4  # max instance call failures before stopping attempt
 CIRCUIT_BREAKER_INSTANT_SYSTEM_TIMEOUT_S = 60  # the circuit breaker retries after this timeout (in seconds)
+
+CIRCUIT_BREAKER_MAX_BRAGI_FAIL = 4  # max instance call failures before stopping attempt
+CIRCUIT_BREAKER_BRAGI_TIMEOUT_S = 60  # the circuit breaker retries after this timeout (in seconds)
 # Default region instance
 # DEFAULT_REGION = 'default'
 
@@ -166,3 +173,5 @@ PARSER_MAX_COUNT = int(os.getenv('JORMUNGANDR_PARSER_MAX_COUNT', 1000))
 if boolean(os.getenv('JORMUNGANDR_DISABLE_SQLPOOLING', False)):
     from sqlalchemy.pool import NullPool
     SQLALCHEMY_POOLCLASS = NullPool
+
+MAX_JOURNEYS_CALLS = int(os.getenv('JORMUNGANDR_MAX_JOURNEYS_CALLS', 20))

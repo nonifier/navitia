@@ -388,8 +388,7 @@ Examples :
 It is possible to apply a filter to the returned collection, using
 "filter" parameter. If no object matches the filter, a "bad_filter"
 error is sent. If filter can not be parsed, an "unable_to_parse" error
-is sent. If object or attribute provided is not handled, the filter is
-ignored.
+is sent.
 
 #### {collection}.has_code
 
@@ -547,42 +546,39 @@ Differents kind of objects can be returned (sorted as):
 
 Here is a typical use case. A traveler has to find a line between the
 1500 lines around Paris.
-For example, he could key without any filters:
 
-<div data-collapse>
-    <p>traveler input: "bob"</p>
-    <ul>
-        <li>network : "bobby network"</li>
-        <li>line : "bobby bus 1"</li>
-        <li>line : "bobby bus 2"</li>
-        <li>route : "bobby bus 1 to green"</li>
-        <li>route : "bobby bus 1 to rose"</li>
-        <li>route : "bobby bus 2 to yellow"</li>
-        <li>stop_area : "...</li>
-    </ul>
-</div>
-<div data-collapse>
-    <p>traveler input: "bobby met"</p>
-    <ul>
-        <li>line : "bobby metro 1"</li>
-        <li>line : "bobby metro 11"</li>
-        <li>line : "bobby metro 2"</li>
-        <li>line : "bobby metro 3"</li>
-        <li>route : "bobby metro 1 to Martin"</li>
-        <li>route : "bobby metro 1 to Mahatma"</li>
-        <li>route : "bobby metro 11 to Marcus"</li>
-        <li>route : "bobby metro 11 to Steven"</li>
-        <li>route : "...</li>
-    </ul>
-</div>
-<div data-collapse>
-    <p>traveler input: "bobby met 11" or "bobby metro 11"</p>
-    <ul>
-        <li>line : "bobby metro 11"</li>
-        <li>route : "bobby metro 11 to Marcus"</li>
-        <li>route : "bobby metro 11 to Steven"</li>
-    </ul>
-</div>
+#### Examples
+
+User could type one of the following without any filters:
+
+##### Traveler input "bob":
+
+-  network : "bobby network"
+-  line : "bobby bus 1"
+-  line : "bobby bus 2"
+-  route : "bobby bus 1 to green"
+-  route : "bobby bus 1 to rose"
+-  route : "bobby bus 2 to yellow"
+-  stop_area : "...
+
+##### Traveler input "bobby met":
+
+-  line : "bobby metro 1"
+-  line : "bobby metro 11"
+-  line : "bobby metro 2"
+-  line : "bobby metro 3"
+-  route : "bobby metro 1 to Martin"
+-  route : "bobby metro 1 to Mahatma"
+-  route : "bobby metro 11 to Marcus"
+-  route : "bobby metro 11 to Steven"
+-  route : "...
+
+##### Traveler input: "bobby met 11" or "bobby metro 11":
+
+-  line : "bobby metro 11"
+-  route : "bobby metro 11 to Marcus"
+-  route : "bobby metro 11 to Steven"
+
 
 ### Access
 
@@ -729,7 +725,7 @@ HTTP/1.1 200 OK
 
 Also known as `/places_nearby` service.
 
-This endpoint allowe you to search for public transport objects that are near another object, or nearby
+This endpoint allows you to search for public transport objects that are near another object, or nearby
 coordinates, returning a [places](#place) collection.
 
 ### Accesses
@@ -753,7 +749,7 @@ coordinates, returning a [places](#place) collection.
   nop      | disable_geojson | boolean     | Remove geojson from the response  | False
   nop      | count       | int             | Elements per page                 | 10
   nop      | start_page  | int             | The page number (cf the [paging section](#paging)) | 0
-  nop      | add_poi_infos[] | boolean     | Activate the output of additional infomations about the poi. For example, parking availability (BSS, car parking etc.) in the pois of response. Pass `add_poi_infos[]=&` (empty string) to deactivate all.   | [`bss_stands`, `car_park`]
+  nop      | add_poi_infos[] | enum        | Activate the output of additional infomations about the poi. For example, parking availability (BSS, car parking etc.) in the pois of response. Pass `add_poi_infos[]=none&` or `add_poi_infos[]=&` (empty string) to deactivate all.   | [`bss_stands`, `car_park`]
 
 Filters can be added:
 
@@ -959,6 +955,18 @@ It will retrieve all the journeys from the resource (in order to make *[isochron
 
 The [isochrones](#isochrones) service exposes another response structure, which is simpler, for the same data.
 
+### <a name="journeys-disruptions"></a> Disruptions
+By default, Navitia only computes journeys that don't have disruptions, disrupted journeys will not be reported into the response.
+If you want to provide journeys without blocking disruptions, you need to use the parameter `data_freshness=realtime`.
+
+In a journey's response, different disruptions may have different meanings.
+Each journey has a `status` attribute that indicates the most serious disruption effect.
+Disruptions are on the sections, the ones that impact the journey are in the sections's display_informations links  (`sections[].display_informations.links[]`).
+
+You might also have other disruptions in the response. They don't directly impact the journey, but might affect them.
+For example, some intermediate stops of a section can be disrupted, it doesn't prevent the journey from being realised but modifies it.
+These disruptions won't be on the `display_informations` of the sections or used in the journey's status.
+
 ### <a name="journeys-parameters"></a>Main parameters
 
 | Required  | Name                    | Type          | Description                                                                            | Default value |
@@ -967,7 +975,7 @@ The [isochrones](#isochrones) service exposes another response structure, which 
 | nop       | to                      | id            | The id of the arrival of your journey. If none are provided an isochrone is computed   |               |
 | nop       | datetime                | [iso-date-time](#iso-date-time) | Date and time to go.<br>Note: the datetime must be in the [coverage's publication period](#coverage)                                                   | now           |
 | nop       | datetime_represents     | string        | Can be `departure` or `arrival`.<br>If `departure`, the request will retrieve journeys starting after datetime.<br>If `arrival` it will retrieve journeys arriving before datetime.                      | departure     |
-| nop       | <a name="traveler-type"></a>traveler_type | enum | Define speeds and accessibility values for different kind of people.<br>Each profile also automatically determines appropriate first and last section modes to the covered area. Note: this means that you might get car, bike, etc fallback routes even if you set `forbidden_uris[]`! You can overload all parameters (especially speeds, distances, first and last modes) by setting all of them specifically. We advise that you don't rely on the traveler_type's fallback modes (`first_section_mode[]` and `last_section_mode[]`) and set them yourself.<br><div data-collapse><p>enum values:</p><ul><li>standard</li><li>slow_walker</li><li>fast_walker</li><li>luggage</li><li>wheelchair</li></ul></div>| standard      |
+| nop       | <a name="traveler-type"></a>traveler_type | enum | Define speeds and accessibility values for different kind of people.<br>Each profile also automatically determines appropriate first and last section modes to the covered area. Note: this means that you might get car, bike, etc fallback routes even if you set `forbidden_uris[]`! You can overload all parameters (especially speeds, distances, first and last modes) by setting all of them specifically.<br> We advise that you don't rely on the traveler_type's fallback modes (`first_section_mode[]` and `last_section_mode[]`) and set them yourself.<br>enum values:<ul><li>standard</li><li>slow_walker</li><li>fast_walker</li><li>luggage</li><li>wheelchair</li></ul>|               |
 | nop       | data_freshness          | enum          | Define the freshness of data to use to compute journeys <ul><li>realtime</li><li>base_schedule</li></ul> _**when using the following parameter**_ "&data_freshness=base_schedule" <br> you can get disrupted journeys in the response. You can then display the disruption message to the traveler and make a realtime request to get a new undisrupted solution.   | base_schedule |
 | nop       | forbidden_uris[]        | id            | If you want to avoid lines, modes, networks, etc.</br> Note: the forbidden_uris[] concern only the public transport objects. You can't for example forbid the use of the bike with them, you have to set the fallback modes for this (`first_section_mode[]` and `last_section_mode[]`) |               |
 |nop        | allowed_id[]            | id            | If you want to use only a small subset of the public transport objects in your solution. The constraint intersects with `forbidden_uris[]`. For example, if you ask for `allowed_id[]=line:A&forbidden_uris[]=physical_mode:Bus`, only vehicles of the line A that are not buses will be used. | everything |
@@ -983,8 +991,8 @@ The [isochrones](#isochrones) service exposes another response structure, which 
 | nop     | bike_speed           | float   | Biking speed for the fallback<br>Speed unit must be in meter/seconds | 4.1 m/s<br>(14.7 km/h)   |
 | nop     | bss_speed            | float   | Speed while using a bike from a bike sharing system for the fallback sections<br>Speed unit must be in meter/seconds | 4.1 m/s<br>(14.7 km/h)    |
 | nop     | car_speed            | float   | Driving speed for the fallback sections<br>Speed unit must be in meter/seconds         | 16.8 m/s<br>(60 km/h)   |
-| nop     | min_nb_journeys      | int     | Minimum number of different suggested journeys<br>More in multiple_journeys  |             |
-| nop     | max_nb_journeys      | int     | Maximum number of different suggested journeys<br>More in multiple_journeys  |             |
+| nop     | min_nb_journeys      | non-negative int | Minimum number of different suggested journeys<br>More in multiple_journeys  |             |
+| nop     | max_nb_journeys      | positive int | Maximum number of different suggested journeys<br>More in multiple_journeys  |             |
 | nop     | count                | int     | Fixed number of different journeys<br>More in multiple_journeys  |             |
 | nop     | max_nb_tranfers      | int     | Maximum number of transfers in each journey  | 10          |
 | nop     | min_nb_transfers     | int     | Minimum number of transfers in each journey  | 0           |
@@ -994,6 +1002,8 @@ The [isochrones](#isochrones) service exposes another response structure, which 
 | nop     | direct_path          | enum    | Specify if direct paths should be suggested.<br>possible values: <ul><li>indifferent</li><li>none</li><li>only</li></ul>      | indifferent |
 | nop     | add_poi_infos[]      | boolean | Activate the output of additional infomations about the poi. For example, parking availability(BSS, car parking etc.) in the pois of response. Possible values are `bss_stands`, `car_park`    | []
 | nop     | debug                | boolean | Debug mode<br>No journeys are filtered in this mode     | False       |
+| nop     | free_radius_from     | int     | Radius length (in meters) around the coordinates of departure in which the stop points are considered free to go (crowfly=0) | 0           |
+| nop     | free_radius_to	     | int     | Radius length (in meters) around the coordinates of arrival in which the stop points are considered free to go (crowfly=0)  | 0           |
 
 ### Precisions on `forbidden_uris[]` and `allowed_id[]`
 
@@ -1005,6 +1015,18 @@ Examples:
 
 * A user doesn't like line A metro in hers city. She adds the parameter `forbidden_uris[]=line:A` when calling the API.
 * A user would only like to use Buses and Tramways. She adds the parameter `allowed_id[]=physical_mode:Bus&allowed_id[]=physical_mode:Tramway`.
+
+### Precisions on `free_radius_from/free_radius_to`
+
+These parameters find the nearest stop point (within free_radius distance) to the given coordinates.
+Then, it allows skipping walking sections between the point of departure/arrival and those nearest stop points.
+
+Example:
+
+![image](free_radius.png)
+
+In this example, the stop points within the circle (SP1, SP2 et SP3) can be reached via a crowfly of 0 second. The other stop points, outside the circle, will be reached by walking.
+
 
 #### Technically
 
@@ -1086,12 +1108,12 @@ Here is a typical journey, all sections are detailed below
 
 Field                    | Type                                          | Description
 -------------------------|-----------------------------------------------|------------
-type                     | *enum* string                                 | <div data-collapse><p>Type of the section.</p><ul><li>`public_transport`: public transport section</li><li>`street_network`: street section</li><li>`waiting`: waiting section between transport</li><li><p>`stay_in`: this “stay in the vehicle” section occurs when the traveller has to stay in the vehicle when the bus change its routing. Here is an exemple for a journey from A to B: (lollipop line)</p><p>![image](stay_in.png)</p></li><li>`transfer`: transfert section</li><li><p>`crow_fly`: teleportation section. Used when starting or arriving to a city or a stoparea (“potato shaped” objects) Useful to make navitia idempotent. Be careful: no “path” nor “geojson” items in this case</p><p>![image](crow_fly.png)</p></li><li>`on_demand_transport`: vehicle may not drive along: traveler will have to call agency to confirm journey</li><li>`bss_rent`: taking a bike from a bike sharing system (bss)</li><li>`bss_put_back`: putting back a bike from a bike sharing system (bss)</li><li>`boarding`: boarding on plane</li><li>`landing`: landing off the plane</li></ul></div>
+type                     | *enum* string                                 | Type of the section.<ul><li>`public_transport`: public transport section</li><li>`street_network`: street section</li><li>`waiting`: waiting section between transport</li><li><p>`stay_in`: this “stay in the vehicle” section occurs when the traveller has to stay in the vehicle when the bus change its routing. Here is an exemple for a journey from A to B: (lollipop line)</p><p>![image](stay_in.png)</p></li><li>`transfer`: transfert section</li><li><p>`crow_fly`: teleportation section, most of the time. Useful to make navitia idempotent when starting from or arriving to a city or a stop_area (“potato shaped” objects) in order to route to the nearest stop_point. Be careful: neither “path” nor “geojson” available in a crow_fly section.</p><p> Can also be used when no street_network data are available and not be considered as teleportation. The distance of such a crow_fly section will be a straight line between the point of departure and arrival (hence the name 'crow_fly'). The duration of the section will be calculated with the Manhattan distance of the section (distance x √2). In this case, “geojson” is available.</p><p>![image](crow_fly.png)</p></li><li>`on_demand_transport`: vehicle may not drive along: traveler will have to call agency to confirm journey</li><li>`bss_rent`: taking a bike from a bike sharing system (bss)</li><li>`bss_put_back`: putting back a bike from a bike sharing system (bss)</li><li>`boarding`: boarding on plane</li><li>`landing`: landing off the plane</li><li>`alighting`: getting off a vehicle (boat, on-demand-transport, plane, ...)</li><li>`park`: parking a car</li><li>`ridesharing`: car-pooling section</li></ul>
 id                       | string                                        | Id of the section
 mode                     | *enum* string                                 | Mode of the street network: `Walking`, `Bike`, `Car`
 duration                 | int                                           | Duration of this section
-from                     | [places](#place)                             | Origin place of this section
-to                       | [places](#place)                             | Destination place of this section
+from                     | [places](#place)                              | Origin place of this section
+to                       | [places](#place)                              | Destination place of this section
 links                    | Array of [link](#link)                        | Links related to this section
 display_informations     | [display_informations](#display-informations) | Useful information to display
 additional_informations  | *enum* string                                 | Other information. It can be: <ul><li>`regular`: no on demand transport (odt)</li><li>`has_date_time_estimated`: section with at least one estimated date time</li><li>`odt_with_stop_time`: odt with fixed schedule, but travelers have to call agency!</li><li>`odt_with_stop_point`: odt where pickup or drop off are specific points</li><li>`odt_with_zone`: odt which is like a cab, from wherever you want to wherever you want, whenever it is possible</li></ul>
@@ -1542,7 +1564,7 @@ nop      | disable_geojson | boolean                | remove geojson fields from
 |route|[route](#route)|The route of the schedule|
 |date_times|Array of [pt-date-time](#pt-date-time)|When does a bus stops at the stop point|
 |stop_point|[stop_point](#stop-point)|The stop point of the schedule|
-|additional_informations|[additional_informations](#additional-informations)|Other informations, when no departures <div data-collapse><p>enum values:</p><ul><li>date_out_of_bounds</li><li>terminus</li><li>partial_terminus</li><li>active_disruption</li><li>no_departures_known</li></ul></div>|
+|additional_informations|[additional_informations](#additional-informations)|Other informations, when no departures<br> enum values:<ul><li>date_out_of_bounds</li><li>terminus</li><li>partial_terminus</li><li>active_disruption</li><li>no_departures_known</li></ul>|
 
 
 <a name="departures"></a>Departures
@@ -1702,6 +1724,175 @@ object. Arrivals are ordered chronologically in ascending order.
 
 they are exactly the same as [departures](#departures)
 
+<a name="line-reports"></a>Line reports
+---------------------------------------
+``` shell
+#request
+$ curl 'http://api.navitia.io/v1/coverage/sandbox/line_reports' -H 'Authorization: 3b036afe-0110-4202-b9ed-99718476c2e0'
+
+#response, composed by 2 main lists: "line_reports" and "disruptions"
+HTTP/1.1 200 OK
+
+{
+"disruptions": [
+        #list of linked disruptions
+],
+"line_reports": [
+    {
+        "line": {
+            #main object (line) and links within its own disruptions
+        }
+        "pt_objects": [
+            #list of all disrupted objects related to the line: stop_area, networks, etc...
+        ]
+    },
+    {
+        #Another line with its objects
+    }
+]
+}
+
+```
+
+This service provides the state of public transport traffic, grouped by lines and all their stops. 
+It can be called for an overall coverage or for a specific object.
+
+<img src="./images/traffic_reports.png" alt="Traffic reports" width="300"/>
+
+### Parameters
+
+You can access it via that kind of url: <https://api.navitia.io/v1/{a_path_to_a_resource}/line_reports>
+
+For example:
+
+-   overall public transport line report on Ile de France coverage
+    -   <https://api.navitia.io/v1/coverage/fr-idf/line_reports>
+-   Is there any perturbations on the RER network ?
+    -   <https://api.navitia.io/v1/coverage/fr-idf/networks/network:RER/line_reports>
+-   Is there any perturbations on the "RER A" line ?
+    -   <https://api.navitia.io/v1/coverage/fr-idf/networks/network:RER/lines/line:TRN:DUA810801043/line_reports>
+
+Required | Name             | Type                            | Description                                       | Default Value
+---------|------------------|---------------------------------|---------------------------------------------------|--------------
+no       | since            | [iso-date-time](#iso-date-time) | Only display disruptions active after this date   |
+no       | until            | [iso-date-time](#iso-date-time) | Only display disruptions active before this date  |
+no       | count            | int                             | Maximum number of results.                        | 10
+no       | forbidden_uris[] | id                              | If you want to avoid lines, modes, networks, etc. |
+no       | disable_geojson  | boolean                         | remove geojson fields from the response           | false
+no       | tags[]           | array of string                 | Restrain the search within the given disruption tags| 
+
+The response is made of an array of [line_reports](#line-reports),
+and another one of [disruptions](#disruption).
+
+There are inner links between this 2 arrays:
+see the [inner-reference](#inner-references) section to use them.
+
+### Line report object
+``` shell
+#links between objects in a line_reports response
+{
+  "disruptions": [
+    {
+      "status": "active",
+      "id": "17283fae-7dcf-11e8-898e-005056a47b86"
+    },
+    {
+      "status": "active",
+      "id": "140a9970-0c9b-11e8-b2b6-005056a44da2"
+    }
+  ],
+  "line_reports": [
+    {
+      "line": {
+        "links": [],
+        "id": "line:1"
+      },
+      "pt_objects": [
+        {
+          "embedded_type": "stop_point",
+          "stop_point": {
+            "name": "SP 1",
+            "links": [
+              {
+                "internal": true,
+                "type": "disruption",
+                "id": "140a9970-0c9b-11e8-b2b6-005056a44da2",
+                "rel": "disruptions",
+                "templated": false
+              }
+            ],
+          "id": "stop_point:1"
+          }
+        }
+      ]
+    },
+    {
+    "line": {
+        "id": "line:CAE:218",
+        "links": [
+              {
+                "internal": true,
+                "type": "disruption",
+                "id": "17283fae-7dcf-11e8-898e-005056a47b86",
+                "rel": "disruptions",
+                "templated": false
+              }
+        ]
+    },
+    "pt_objects": [
+        {
+            "embedded_type": "line",
+            "line": {
+                "id": "line:CAE:218",
+                "links": [
+                    {
+                        "internal": true,
+                        "type": "disruption",
+                        "id": "17283fae-7dcf-11e8-898e-005056a47b86",
+                        "rel": "disruptions",
+                        "templated": false
+                    }
+                ]
+            }
+        }
+    ]
+}
+]
+}
+```
+Line_reports is an array of some line_report object.
+
+One Line_report object is a complex object, made of a line, and an array
+of [pt_objects](#pt-objects) linked (for example stop_areas, stop_point or network). 
+
+#### What a **complete** response **means**
+
+-   multiple line_reports
+    -   line 1
+          -   stop area concorde > internal link to disruption "green"
+          -   stop area bastille > internal link to disruption "pink"
+    -   line 2 > internal link to disruption "blue"
+          -   network RATP > internal link to disruption "green"
+          -   line 2 > internal link to disruption "blue"
+    -   line 3 > internal link to disruption "yellow"
+          -   stop point bourse > internal link to disruption "yellow"
+-   multiple disruptions (disruption target links)
+    -   disruption "green"
+    -   disruption "pink"
+    -   disruption "blue"
+    -   disruption "yellow"
+    -   Each disruption contains the messages to show.
+
+Details for disruption objects : [disruptions](#disruptions)
+
+#### What a line_report object **contains**
+
+-   1 line which is the grouping object
+    -   it can contain links to its disruptions.  
+    These disruptions are globals and might not be applied on stop_areas and stop_points. 
+-   1..n pt_objects
+    -   each one contains at least a link to its disruptions.
+
 <a name="traffic-reports"></a>Traffic reports
 ---------------------------------------------
 ``` shell
@@ -1731,12 +1922,10 @@ HTTP/1.1 200 OK
 }
 ```
 
-Also known as `/traffic_reports` service.
+Also known as `/traffic_reports` service. We recommand to use line_reports in place of traffic_reports.
 
 This service provides the state of public transport traffic, grouped by network.
 It can be called for an overall coverage or for a specific object.
-
-<img src="./images/traffic_reports.png" alt="Traffic reports" width="300"/>
 
 ### Parameters
 
@@ -1746,10 +1935,14 @@ For example:
 
 -   overall public transport traffic report on Ile de France coverage
     -   <https://api.navitia.io/v1/coverage/fr-idf/traffic_reports>
+-   overall public transport traffic report on Ile de France coverage with disruptions having tags passed in parameter values
+    -   <https://api.navitia.io/v1/coverage/fr-idf/traffic_reports?tags[]=incident&tags[]=alert>
 -   Is there any perturbations on the RER network ?
     -   <https://api.navitia.io/v1/coverage/fr-idf/networks/network:RER/traffic_reports>
+-   Is there any perturbations on the RER network with disruptions having tags passed in parameter values ?
+    -   <https://api.navitia.io/v1/coverage/fr-idf/networks/network:RER/traffic_reports?tags[]=incident&tags[]=alert>
 -   Is there any perturbations on the "RER A" line ?
-    -   <https://api.navitia.io/v1/coverage/fr-idf/networks/network:RER/lines/line:TRN:DUA810801043/traffic_reports>
+    -   <https://api.navitia.io/v1/coverage/fr-idf/networks/network:RER/lines/line:OIF:810:AOIF741/line_reports?>
 
 
 The response is made of an array of [traffic_reports](#traffic-reports),

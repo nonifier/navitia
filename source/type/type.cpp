@@ -1,28 +1,28 @@
 /* Copyright © 2001-2014, Canal TP and/or its affiliates. All rights reserved.
-  
+
 This file is part of Navitia,
     the software to build cool stuff with public transport.
- 
+
 Hope you'll enjoy and contribute to this project,
     powered by Canal TP (www.canaltp.fr).
 Help us simplify mobility and open public transport:
     a non ending quest to the responsive locomotion way of traveling!
-  
+
 LICENCE: This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as published by
 the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
-   
+
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 GNU Affero General Public License for more details.
-   
+
 You should have received a copy of the GNU Affero General Public License
 along with this program. If not, see <http://www.gnu.org/licenses/>.
-  
+
 Stay tuned using
-twitter @navitia 
+twitter @navitia
 IRC #navitia on freenode
 https://groups.google.com/d/forum/navitia
 www.navitia.io
@@ -42,15 +42,16 @@ www.navitia.io
 #include "utils/logger.h"
 
 //they need to be included for the BOOST_CLASS_EXPORT_GUID macro
-#include "third_party/eos_portable_archive/portable_iarchive.hpp"
-#include "third_party/eos_portable_archive/portable_oarchive.hpp"
+#include <eos_portable_archive/portable_iarchive.hpp>
+#include <eos_portable_archive/portable_oarchive.hpp>
 #include <boost/archive/binary_oarchive.hpp>
 #include <boost/archive/binary_iarchive.hpp>
 #include <boost/range/algorithm/find.hpp>
 
 namespace bt = boost::posix_time;
 
-namespace navitia { namespace type {
+namespace navitia {
+namespace type {
 
 ValidityPattern VehicleJourney::get_base_canceled_validity_pattern() const {
     ValidityPattern base_canceled_vp = *validity_patterns[realtime_level];
@@ -93,7 +94,7 @@ std::vector<boost::shared_ptr<disruption::Impact>> HasMessages::get_applicable_m
 
 std::vector<boost::shared_ptr<disruption::Impact>> HasMessages::get_impacts() const {
     std::vector<boost::shared_ptr<disruption::Impact>> result;
-    for (const auto impact: impacts) {
+    for (const auto& impact: impacts) {
         auto impact_sptr = impact.lock();
         if (impact_sptr == nullptr) { continue; }
         result.push_back(impact_sptr);
@@ -396,12 +397,16 @@ bool VehicleJourney::has_landing() const{
 namespace {
 template <typename F>
 static bool concerns_base_at_period(const VehicleJourney& vj,
+                                    const RTLevel rt_level,
                                     const std::vector<bt::time_period>& periods,
                                     const F& fun,
                                     bool check_past_midnight = true) {
     bool intersect = false;
-    // we only need to check on the base canceled vp
-    ValidityPattern concerned_vp = vj.get_base_canceled_validity_pattern();
+
+    ValidityPattern concerned_vp = *vj.validity_patterns[rt_level];
+    // We shift the vlidity pattern to get the base one (from adapted or realtime)
+    concerned_vp.days >>= vj.shift;
+
     for (const auto& period: periods) {
         //we can impact a vj with a departure the day before who past midnight
         namespace bg = boost::gregorian;
@@ -485,7 +490,7 @@ void cleanup_useless_vj_link(const nt::VehicleJourney* vj, nt::PT_Data& pt_data)
 
 void MetaVehicleJourney::clean_up_useless_vjs(nt::PT_Data& pt_data) {
     std::vector<std::pair<RTLevel, size_t>> vj_idx_to_remove;
-    for (const auto& rt_vjs: rtlevel_to_vjs_map) {
+    for (const auto rt_vjs: rtlevel_to_vjs_map) {
         auto& vjs = rt_vjs.second;
         if (vjs.empty()) { continue; }
         // reverse iteration for later deletion
@@ -566,13 +571,23 @@ VJ* MetaVehicleJourney::impl_create_vj(const std::string& uri,
 
     // Desactivating the other vjs. The last creation has priority on
     // all the already existing vjs.
+    // Patch: we protect the BaseLevel as we should never have to modify VPs of this level.
+    // Context: Sometimes from a unique trip we can have two vehiclejourney active the same day while
+    // splitting a vehiclejourney with a period divided by DST and stop_times between 01:00 and 02:00.
+    // We must keep the base VP as-is, as it's legitimate, but we used to remove duplicate days from VP.
+    // After the VP cleanup, it can be empty, thus we eliminate the vehicle journey.
+    // This elimination provokes some memory error if it's a BaseLevel VJ.
+    // TODO: We could also have the same bug for other two levels and hence it has to be checked.
+    // We must allow (todo) two VJ from the same trip on the same UTC day.
     const auto mask = ~canceled_vp.days;
     for_all_vjs([&] (VehicleJourney& vj) {
-            for (const auto l: enum_range_from(level)) {
+        for (const auto l: enum_range_from(level)) {
+            if (l != RTLevel::Base){
                 auto new_vp = *vj.validity_patterns[l];
                 new_vp.days &= (mask << vj.shift);
                 vj.validity_patterns[l] = pt_data.get_or_create_validity_pattern(new_vp);
-             }
+            }
+         }
     });
 
     // we clean up all the now useless vehicle journeys
@@ -628,7 +643,7 @@ void MetaVehicleJourney::cancel_vj(RTLevel level,
                     return true; // we don't want to stop
                 };
 
-                if (concerns_base_at_period(*vj, periods, vp_modifier)) {
+                if (concerns_base_at_period(*vj, vp_level, periods, vp_modifier)) {
                     vj->validity_patterns[vp_level] = pt_data.get_or_create_validity_pattern(tmp_vp);
                 }
             }
@@ -1013,12 +1028,12 @@ std::vector<boost::shared_ptr<disruption::Impact>>
 VehicleJourney::get_impacts() const {
     std::vector<boost::shared_ptr<disruption::Impact>> result;
     // considering which impact concerns this vj
-    for (const auto impact: meta_vj->get_impacts()) {
+    for (const auto& impact: meta_vj->get_impacts()) {
         // checking if impact concerns the period where this vj is valid (base-schedule centric)
         auto vp_functor = [&] (const unsigned) {
             return false; // we don't need to carry on when we find a day concerned
         };
-        if (concerns_base_at_period(*this, impact->application_periods, vp_functor, false)) {
+        if (concerns_base_at_period(*this, realtime_level, impact->application_periods, vp_functor, false)) {
             result.push_back(impact);
         }
     }
@@ -1126,7 +1141,7 @@ EntryPoint::EntryPoint(const Type_e type, const std::string &uri, int access_dur
             this->coordinates.set_lon(coord.first);
             this->coordinates.set_lat(coord.second);
         } catch (const navitia::wrong_coordinate&) {
-            LOG4CPLUS_INFO(log4cplus::Logger::getInstance("logger"), 
+            LOG4CPLUS_INFO(log4cplus::Logger::getInstance("logger"),
                            "uri " << uri << " partialy match coordinate, cannot work");
             this->coordinates.set_lon(0);
             this->coordinates.set_lat(0);

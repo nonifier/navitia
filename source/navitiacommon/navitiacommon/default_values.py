@@ -91,10 +91,10 @@ max_duration = 60*60*24  # seconds
 walking_transfer_penalty = 120  # seconds
 
 # night bus filtering parameter
-night_bus_filter_max_factor = 3
+night_bus_filter_max_factor = 1.5
 
 # night bus filtering parameter
-night_bus_filter_base_factor = 60*60  # seconds
+night_bus_filter_base_factor = 15*60  # seconds
 
 #priority value to be used to choose a kraken instance among valid instances. The greater it is, the more the instance
 # will be chosen.
@@ -115,6 +115,28 @@ successive_physical_mode_to_limit_id = 'physical_mode:Bus'
 
 # Number of greenlets simultaneously used for Real-Time proxies calls
 realtime_pool_size = 3
+
+# Minimum number of different suggested journeys
+min_nb_journeys = 0
+
+# Maximum number of different suggested journeys
+max_nb_journeys = 99999
+
+# Maximum number of successive physical modes for an itinerary
+max_successive_physical_mode = 99
+
+# Minimum number of calls to kraken
+min_journeys_calls = 1
+
+# Filter on vj using same lines and same stops
+final_line_filter = False
+
+# Maximum number of second pass to get more itineraries
+max_extra_second_pass = 0
+
+max_nb_crowfly_by_mode = {'walking': 5000, 'car': 5000, 'bike': 5000, 'bss': 5000}
+
+autocomplete_backend = 'kraken'
 
 def get_value_or_default(attr, instance, instance_name):
     if not instance or getattr(instance, attr, None) == None:

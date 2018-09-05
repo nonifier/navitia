@@ -30,6 +30,7 @@
 """
 Functions to launch the binaratisations
 """
+from __future__ import absolute_import, print_function, division
 import logging
 import os
 import zipfile
@@ -47,7 +48,7 @@ import sqlalchemy
 from navitiacommon.launch_exec import launch_exec
 import navitiacommon.task_pb2
 from tyr import celery, redis
-from rabbit_mq_handler import RabbitMqHandler
+from tyr.rabbit_mq_handler import RabbitMqHandler
 from navitiacommon import models, utils
 from navitiacommon import models
 from tyr.helper import get_instance_logger, get_named_arg, get_autocomplete_instance_logger, get_task_logger
@@ -602,7 +603,50 @@ def stops2mimir(self, instance_config, input, job_id=None, dataset_uid=None):
     try:
         res = launch_exec('stops2mimir', argv, logger)
         if res != 0:
-            raise ValueError('stops2mimir failed')
+            # Do not raise error because that it breaks celery tasks chain.
+            # stops2mimir have to be non-blocking.
+            # @TODO : Find a way to raise error without breaking celery tasks chain
+            logger.error('stops2mimir failed')
+            if job_id:
+                job.state = 'failed'
+                models.db.session.commit()
+    except:
+        logger.exception('')
+        if job_id:
+            job.state = 'failed'
+            models.db.session.commit()
+
+        raise
+
+@celery.task(bind=True)
+def ntfs2mimir(self, instance_config, input, job_id=None, dataset_uid=None):
+    """
+    launch ntfs2mimir
+    """
+    # We don't have job_id while doing a reimport of all instances with import_stops_in_mimir = true
+    if job_id:
+        job = models.Job.query.get(job_id)
+        instance = job.instance
+        logger = get_instance_logger(instance, task_id=job_id)
+    else:
+        logger = get_task_logger(logging.getLogger("autocomplete"))
+    cnx_string = current_app.config['MIMIR_URL']
+
+    working_directory = unzip_if_needed(input)
+
+    argv = ['--input', working_directory,
+            '--connection-string', cnx_string,
+            '--dataset', instance_config.name]
+    try:
+        res = launch_exec('ntfs2mimir', argv, logger)
+        if res != 0:
+            # Do not raise error because it breaks celery tasks chain.
+            # ntfs2mimir have to be non-blocking.
+            # @TODO : Find a way to raise error without breaking celery tasks chain
+            logger.error('ntfs2mimir failed')
+            if job_id:
+                job.state = 'failed'
+                models.db.session.commit()
     except:
         logger.exception('')
         if job_id:

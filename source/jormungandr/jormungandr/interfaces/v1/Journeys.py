@@ -31,7 +31,7 @@
 from __future__ import absolute_import, print_function, unicode_literals, division
 import logging
 from flask import request, g
-from flask_restful import fields, marshal_with, abort
+from flask_restful import fields, marshal_with, abort, inputs
 from jormungandr import i_manager, app
 from jormungandr.interfaces.v1.fields import disruption_marshaller, Links
 from jormungandr.interfaces.v1.fields import display_informations_vj, error, place,\
@@ -56,7 +56,7 @@ from jormungandr.interfaces.v1.journey_common import JourneyCommon, compute_poss
 from jormungandr.parking_space_availability.parking_places_manager import ManageParkingPlaces
 import six
 from navitiacommon.parser_args_type import BooleanType, OptionValue
-from jormungandr.interfaces.common import add_poi_infos_types
+from jormungandr.interfaces.common import add_poi_infos_types, handle_poi_infos
 
 f_datetime = "%Y%m%dT%H%M%S"
 class SectionLinks(fields.Raw):
@@ -358,6 +358,13 @@ class add_journey_href(object):
                     args['allowed_id[]'] = list(allowed_ids)
                     args['_type'] = 'journeys'
                     args['rel'] = 'same_journey_schedules'
+
+                    # Delete arguments that are contradictory to the 'same_journey_schedules' concept
+                    if '_final_line_filter' in args:
+                        del args['_final_line_filter']
+                    if '_no_shared_section' in args:
+                        del args['_no_shared_section']
+
                     journey['links'] = [create_external_link('v1.journeys', **args)]
             return objects
         return wrapper
@@ -461,17 +468,17 @@ class Journeys(JourneyCommon):
                                 help="True when '/journeys' is called to compute"
                                      "the same journey schedules and "
                                      "it'll override some specific parameters")
-        parser_get.add_argument("min_nb_journeys", type=int,
-                                help='Minimum number of different suggested journeys')
-        parser_get.add_argument("max_nb_journeys", type=int,
-                                help='Maximum number of different suggested journeys')
+        parser_get.add_argument("min_nb_journeys", type=inputs.natural,
+                                help='Minimum number of different suggested journeys, must be >= 0')
+        parser_get.add_argument("max_nb_journeys", type=inputs.positive,
+                                help='Maximum number of different suggested journeys, must be > 0')
         parser_get.add_argument("_max_extra_second_pass", type=int, dest="max_extra_second_pass", hidden=True)
 
         parser_get.add_argument("debug", type=BooleanType(), default=False, hidden=True,
                                 help='Activate debug mode.\n'
                                      'No journeys are filtered in this mode.')
         parser_get.add_argument("show_codes", type=BooleanType(), default=False, hidden=True, deprecated=True,
-                                help="show more identification codes")
+                                help="DEPRECATED, show more identification codes")
         parser_get.add_argument("_override_scenario", type=six.text_type, hidden=True,
                                 help="debug param to specify a custom scenario")
         parser_get.add_argument("_street_network", type=six.text_type, hidden=True,
@@ -483,16 +490,42 @@ class Journeys(JourneyCommon):
         parser_get.add_argument("_night_bus_filter_max_factor", hidden=True, type=float)
         parser_get.add_argument("_min_car", hidden=True, type=int)
         parser_get.add_argument("_min_bike", hidden=True, type=int)
-        parser_get.add_argument("bss_stands", type=BooleanType(), default=False,
-                                help="Show bss stands availability "
-                                     "in the bicycle_rental pois of response")
+        parser_get.add_argument("bss_stands", type=BooleanType(), default=False, deprecated=True,
+                                help="DEPRECATED, Use add_poi_infos[]=bss_stands")
         parser_get.add_argument("add_poi_infos[]", type=OptionValue(add_poi_infos_types), default=[],
                                 dest="add_poi_infos", action="append",
                                 help="Show more information about the poi if it's available, for instance, show "
                                      "BSS/car park availability in the pois(BSS/car park) of response")
+        parser_get.add_argument("_no_shared_section", type=BooleanType(), default=False, hidden=True,
+                                dest="no_shared_section",
+                                help="Shared section journeys aren't returned as a separate journey")
+        parser_get.add_argument("timeframe_duration", type=int,
+                                dest="timeframe_duration",
+                                help="Minimum timeframe to search journeys.\n"
+                                     "For example 'timeframe_duration=3600' will search for all "
+                                     "interesting journeys departing within the next hour.\n"
+                                     "Nota 1: Navitia can return journeys after that timeframe as it's "
+                                     "actually a minimum.\n"
+                                     "Nota 2: 'max_nb_journeys' parameter has priority over "
+                                     "'timeframe_duration' parameter.")
+        parser_get.add_argument("_max_nb_crowfly_by_walking", type=int, hidden=True,
+                                help="limit nb of stop points accesible by walking crowfly, "
+                                     "used especially in distributed scenario")
+        parser_get.add_argument("_max_nb_crowfly_by_car", type=int, hidden=True,
+                                help="limit nb of stop points accesible by car crowfly, "
+                                     "used especially in distributed scenario")
+        parser_get.add_argument("_max_nb_crowfly_by_bike", type=int, hidden=True,
+                                help="limit nb of stop points accesible by bike crowfly, "
+                                     "used especially in distributed scenario")
+        parser_get.add_argument("_max_nb_crowfly_by_bss", type=int, hidden=True,
+                                help="limit nb of stop points accesible by bss crowfly, "
+                                     "used especially in distributed scenario")
+
+        args = self.parsers["get"].parse_args()
+
         self.get_decorators.append(complete_links(self))
 
-        if parser_get.parse_args().get("add_poi_infos") or parser_get.parse_args().get("bss_stands"):
+        if handle_poi_infos(args["add_poi_infos"], args["bss_stands"]):
             self.get_decorators.insert(1, ManageParkingPlaces(self, 'journeys'))
 
     @add_debug_info()
@@ -506,11 +539,17 @@ class Journeys(JourneyCommon):
         possible_regions = compute_possible_region(region, args)
         args.update(self.parse_args(region, uri))
 
-
-        #count override min_nb_journey or max_nb_journey
+        # count override min_nb_journey or max_nb_journey
         if 'count' in args and args['count']:
             args['min_nb_journeys'] = args['count']
             args['max_nb_journeys'] = args['count']
+
+        if args['min_nb_journeys'] and args['max_nb_journeys'] and \
+                args['max_nb_journeys'] < args['min_nb_journeys']:
+            abort(400, message='max_nb_journeyes must be >= min_nb_journeys')
+
+        if args.get('timeframe_duration'):
+            args['timeframe_duration'] = min(args['timeframe_duration'], default_values.max_duration)
 
         if args['destination'] and args['origin']:
             api = 'journeys'
@@ -535,15 +574,38 @@ class Journeys(JourneyCommon):
                 args['_night_bus_filter_max_factor'] = mod.night_bus_filter_max_factor
             if args.get('_max_additional_connections') is None:
                 args['_max_additional_connections'] = mod.max_additional_connections
+            if args.get('min_nb_journeys') is None:
+                args['min_nb_journeys'] = mod.min_nb_journeys
+            if args.get('max_nb_journeys') is None:
+                args['max_nb_journeys'] = mod.max_nb_journeys
+            if args.get('_min_journeys_calls') is None:
+                args['_min_journeys_calls'] = mod.min_journeys_calls
+            if args.get('_max_successive_physical_mode') is None:
+                args['_max_successive_physical_mode'] = mod.max_successive_physical_mode
+            if args.get('_final_line_filter') is None:
+                args['_final_line_filter'] = mod.final_line_filter
+            if args.get('_max_extra_second_pass') is None:
+                args['_max_extra_second_pass'] = mod.max_extra_second_pass
+
+            # we create a new arg for internal usage, only used by distributed scenario
+            args['max_nb_crowfly_by_mode'] = mod.max_nb_crowfly_by_mode # it's a dict of str vs int
+            for mode in ('walking', 'car', 'bike', 'bss'):
+                nb_crowfly = args.get('_max_nb_crowfly_by_{}'.format(mode))
+                if nb_crowfly is not None:
+                    args['max_nb_crowfly_by_mode'][mode] = nb_crowfly
 
         if region:
             _set_specific_params(i_manager.instances[region])
         else:
             _set_specific_params(default_values)
 
-        # set parameters when is_journey_schedules is set to True
+        # When computing 'same_journey_schedules'(is_journey_schedules=True), some parameters need to be overridden
+        # because they are contradictory to the request
         if args.get("is_journey_schedules"):
+            # '_final_line_filter' (defined in db) removes journeys with the same lines sequence
             args["_final_line_filter"] = False
+            # 'no_shared_section' removes journeys with a section that have the same origin and destination stop points
+            args["no_shared_section"] = False
 
         if not (args['destination'] or args['origin']):
             abort(400, message="you should at least provide either a 'from' or a 'to' argument")
@@ -551,25 +613,25 @@ class Journeys(JourneyCommon):
         if args['debug']:
             g.debug = True
 
-        #we add the interpreted parameters to the stats
+        # Add the interpreted parameters to the stats
         self._register_interpreted_parameters(args)
         logging.getLogger(__name__).debug("We are about to ask journeys on regions : {}".format(possible_regions))
 
-        #we want to store the different errors
+        # Store the different errors
         responses = {}
         for r in possible_regions:
             self.region = r
 
             set_request_timezone(self.region)
 
-            #we store the region in the 'g' object, which is local to a request
+            # Store the region in the 'g' object, which is local to a request
             if args['debug']:
                 # In debug we store all queried region
                 if not hasattr(g, 'regions_called'):
                     g.regions_called = []
                 g.regions_called.append(r)
 
-            # we save the original datetime for debuging purpose
+            # Save the original datetime for debuging purpose
             original_datetime = args['original_datetime']
             if original_datetime:
                 new_datetime = self.convert_to_utc(original_datetime)

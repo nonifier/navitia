@@ -61,7 +61,7 @@ const flat_enum_map<nt::Mode_e, float> default_speed {
                                                     }}
                                                     };
 
-/** Propriétés Nœud (intersection entre deux routes) */
+/** Node properties (road intersection) */
 struct Vertex {
     nt::GeographicalCoord coord;
 
@@ -79,10 +79,10 @@ struct Vertex {
     }
 };
 
-/** Propriétés des arcs : (anciennement "segment")*/
+/** Edge properties (used to be "segment")*/
 
 struct Edge {
-    nt::idx_t way_idx = nt::invalid_idx; //< indexe vers le nom de rue
+    nt::idx_t way_idx = nt::invalid_idx; //< indexing street name
     nt::idx_t geom_idx = nt::invalid_idx; // geometry index
     navitia::time_duration duration = {}; // duration of the edge
 
@@ -196,13 +196,13 @@ struct PathItem {
     };
     TransportCaracteristic transportation = TransportCaracteristic::Walk;
 
-    double get_length(double speed_factor) const;
+    float get_length(float speed_factor) const;
 };
 
-/** Itinéraire complet */
+/** Complete path */
 struct Path {
-    navitia::time_duration duration = {}; //< Longueur totale du parcours
-    std::deque<PathItem> path_items = {}; //< Liste des voies parcourues
+    navitia::time_duration duration = {}; //< Total length of the path
+    std::deque<PathItem> path_items = {}; //< List of street used
 };
 
 struct ProjectionData;
@@ -300,9 +300,8 @@ struct GeoRef {
 
     /// Recherche d'une adresse avec un numéro en utilisant Autocomplete
     std::vector<nf::Autocomplete<nt::idx_t>::fl_quality> find_ways(const std::string & str, const int nbmax, const int search_type,std::function<bool(nt::idx_t)> keep_element, const std::set<std::string>& ghostwords) const;
-
-
     std::vector<Admin*> find_admins(const type::GeographicalCoord&) const;
+    std::vector<Admin*> find_admins(const type::GeographicalCoord&, AdminRtree&) const;
 
     /**
      * Project each stop_point on the georef network

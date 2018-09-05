@@ -1,4 +1,4 @@
-Objects
+﻿Objects
 =======
 
 Standard Objects
@@ -119,7 +119,7 @@ Networks are fed by agencies in GTFS format.
 |-----|----|-----------|
 |id|string|Identifier of the route|
 |name|string|Name of the route|
-|is_frequence|bool|Is the route has frequency or not|
+|is_frequence|enum|If the route has frequency or not. Can only be "False", but may be "True" in the future|
 |line|[line](#line)|The line of this route|
 |direction|[place](#place)|The direction of this route|
 
@@ -442,7 +442,8 @@ Real time and disruption objects
 |Field|Type|Description|
 |-----|----|-----------|
 |from|[pt_object](#pt_object)|The beginning of the section|
-|to|[pt_object](#pt_object)|The end of the section|
+|to|[pt_object](#pt_object)|The end of the section. This can be the same as `from` when only one point is impacted|
+|routes|[route](#route)| The list of impacted routes by the impacted_section|
 
 ### Impacted_stop
 
@@ -561,6 +562,17 @@ $ curl 'https://api.navitia.io/v1/coverage/sandbox/poi_types' -H 'Authorization:
 |id|string|Identifier of the poi type|
 |name|string|Name of the poi type|
 
+### Stands
+
+A description of the number of stands/places and vehicles available at a bike sharing station.
+
+|Field           |Type|Description                                                                  |
+|----------------|----|-----------------------------------------------------------------------------|
+|available_places|int |Number of places where one can park                                          |
+|available_bikes |int |Number of bikes available                                                    |
+|total_stands    |int |Total number of stands (occupied or not, with or without special equipment)  |
+|status          |enum|Information about the station itself:<ul><li>`unavailable`: Navitia is not able to obtain information about the station</li><li>`open`: The station is open</li><li>`closed`: The station is closed</li></ul>|
+
 ### <a name="poi"></a>Poi
 ``` shell
 #useless request, with huge response
@@ -577,12 +589,13 @@ $ curl 'https://api.navitia.io/v1/coverage/sandbox/poi_types/poi_type:amenity:bi
 
 Poi = Point Of Interest
 
-|Field|Type|Description|
-|-----|----|-----------|
-|id|string|Identifier of the poi|
-|name|string|Name of the poi|
-|label|string|Label of the poi. The name is directly taken from the data whereas the label is something we compute for better traveler information. If you don't know what to display, display the label.|
-|poi_type|[poi_type](#poi-type)|Type of the poi|
+|Field   |Type                 |Description                                                         |
+|--------|---------------------|--------------------------------------------------------------------|
+|id      |string               |Identifier of the poi                                               |
+|name    |string               |Name of the poi                                                     |
+|label   |string               |Label of the poi. The name is directly taken from the data whereas the label is something we compute for better traveler information. If you don't know what to display, display the label.|
+|poi_type|[poi_type](#poi-type)|Type of the poi                                                     |
+|stands  |[stands](#stands)    |Information on the spots available, for BSS stations               |
 
 ### Address
 

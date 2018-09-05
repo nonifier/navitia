@@ -1,28 +1,28 @@
 /* Copyright © 2001-2014, Canal TP and/or its affiliates. All rights reserved.
-  
+
 This file is part of Navitia,
     the software to build cool stuff with public transport.
- 
+
 Hope you'll enjoy and contribute to this project,
     powered by Canal TP (www.canaltp.fr).
 Help us simplify mobility and open public transport:
     a non ending quest to the responsive locomotion way of traveling!
-  
+
 LICENCE: This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as published by
 the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
-   
+
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 GNU Affero General Public License for more details.
-   
+
 You should have received a copy of the GNU Affero General Public License
 along with this program. If not, see <http://www.gnu.org/licenses/>.
-  
+
 Stay tuned using
-twitter @navitia 
+twitter @navitia
 IRC #navitia on freenode
 https://groups.google.com/d/forum/navitia
 www.navitia.io
@@ -50,8 +50,7 @@ www.navitia.io
 namespace gd = boost::gregorian;
 namespace nd = navitia::type::disruption;
 
-namespace navitia{
-
+namespace navitia {
 
 struct PbCreator::Filler::PtObjVisitor: public boost::static_visitor<> {
     const nd::Impact& impact;
@@ -96,6 +95,7 @@ struct PbCreator::Filler::PtObjVisitor: public boost::static_visitor<> {
         case nd::StopTimeUpdate::Status::DELETED:
             return pbnavitia::DELETED;
         case nd::StopTimeUpdate::Status::UNCHANGED:
+        default:
             return pbnavitia::UNCHANGED;
         }
     }
@@ -529,6 +529,11 @@ void PbCreator::Filler::fill_pb_object(const nt::StopPoint* sp, pbnavitia::StopP
         fill(pm, stop_point->mutable_physical_modes());
     }
 
+    if (!sp->fare_zone.empty()) {
+        auto* farezone = stop_point->mutable_fare_zone();
+        farezone->set_name(sp->fare_zone);
+    }
+
     fill_messages(sp, stop_point);
     fill_codes(sp, stop_point);
 }
@@ -705,7 +710,7 @@ void PbCreator::Filler::fill_pb_object(const nt::Calendar* cal, pbnavitia::Calen
         auto pb_period = pb_cal->add_active_periods();
         pb_period->set_begin(gd::to_iso_string(p.begin()));
         pb_period->set_end(gd::to_iso_string(p.end()));
-    }    
+    }
     fill(cal->exceptions, pb_cal->mutable_exceptions());
 }
 
@@ -789,7 +794,7 @@ void PbCreator::Filler::fill_pb_object(const nt::MultiLineString* shape,
                                          pbnavitia::MultiLineString* geojson){
     for (const std::vector<nt::GeographicalCoord>& line: *shape) {
         auto l = geojson->add_lines();
-        for (const auto coord: line) {
+        for (const auto& coord: line) {
             auto c = l->add_coordinates();
             c->set_lon(coord.lon());
             c->set_lat(coord.lat());
@@ -871,7 +876,7 @@ void PbCreator::Filler::fill_pb_object(const nt::StopTime* st, pbnavitia::StopTi
     // we always dump the stop point (with the same depth)
     copy(depth, dump_message_options).fill_pb_object(st->stop_point, stop_time->mutable_stop_point());
 
-    if ( depth > 0) {
+    if (depth > 0) {
         fill(st->vehicle_journey, stop_time);
     }
 }
@@ -980,6 +985,30 @@ compute_disruption_status(const nd::Impact& impact,
     }
 }
 
+static pbnavitia::Severity_Effect get_severity_effect(nd::Effect e) {
+    switch(e) {
+    case nd::Effect::NO_SERVICE:
+        return pbnavitia::Severity_Effect::Severity_Effect_NO_SERVICE;
+    case nd::Effect::REDUCED_SERVICE:
+        return pbnavitia::Severity_Effect::Severity_Effect_REDUCED_SERVICE;
+    case nd::Effect::SIGNIFICANT_DELAYS:
+        return pbnavitia::Severity_Effect::Severity_Effect_SIGNIFICANT_DELAYS;
+    case nd::Effect::DETOUR:
+        return pbnavitia::Severity_Effect::Severity_Effect_DETOUR;
+    case nd::Effect::ADDITIONAL_SERVICE:
+        return pbnavitia::Severity_Effect::Severity_Effect_ADDITIONAL_SERVICE;
+    case nd::Effect::MODIFIED_SERVICE:
+        return pbnavitia::Severity_Effect::Severity_Effect_MODIFIED_SERVICE;
+    case nd::Effect::OTHER_EFFECT:
+        return pbnavitia::Severity_Effect::Severity_Effect_OTHER_EFFECT;
+    case nd::Effect::STOP_MOVED:
+        return pbnavitia::Severity_Effect::Severity_Effect_STOP_MOVED;
+    case nd::Effect::UNKNOWN_EFFECT:
+    default:
+        return pbnavitia::Severity_Effect::Severity_Effect_UNKNOWN_EFFECT;
+    }
+}
+
 template <typename P>
 void PbCreator::Filler::fill_message(const boost::shared_ptr<nd::Impact>& impact,
                                      P pb_object){
@@ -1015,7 +1044,7 @@ void PbCreator::Filler::fill_pb_object(const nd::Impact* impact, pbnavitia::Impa
     auto pb_severity = pb_impact->mutable_severity();
     pb_severity->set_name(impact->severity->wording);
     pb_severity->set_color(impact->severity->color);
-    pb_severity->set_effect(to_string(impact->severity->effect));
+    pb_severity->set_effect(get_severity_effect(impact->severity->effect));
     pb_severity->set_priority(impact->severity->priority);
 
     for (const auto& t: impact->disruption->tags) {
@@ -1578,7 +1607,7 @@ void PbCreator::fill_fare_section(pbnavitia::Journey* pb_journey, const fare::re
         if (ticket.is_default_ticket()) {
             if (! unknown_ticket) {
                 pb_ticket = response.add_tickets();
-                pb_ticket->set_name(ticket.key);
+                pb_ticket->set_name(ticket.caption);
                 pb_ticket->set_found(false);
                 pb_ticket->set_id("unknown_ticket");
                 pb_ticket->set_comment("unknown ticket");
@@ -1592,7 +1621,7 @@ void PbCreator::fill_fare_section(pbnavitia::Journey* pb_journey, const fare::re
         else {
             pb_ticket = response.add_tickets();
 
-            pb_ticket->set_name(ticket.key);
+            pb_ticket->set_name(ticket.caption);
             pb_ticket->set_found(true);
             pb_ticket->set_comment(ticket.comment);
             pb_ticket->set_id("ticket_" + boost::lexical_cast<std::string>(++cpt_ticket));
@@ -1620,8 +1649,8 @@ void PbCreator::add_path_item(pbnavitia::StreetNetwork* sn, const ng::PathItem& 
 
     pbnavitia::PathItem* path_item = sn->add_path_items();
     path_item->set_name(data->geo_ref->ways[item.way_idx]->name);
-    path_item->set_length(item.get_length(ori_dest.streetnetwork_params.speed_factor));
-    path_item->set_duration(item.duration.total_fractional_seconds());
+    path_item->set_length(double(item.get_length(ori_dest.streetnetwork_params.speed_factor)));
+    path_item->set_duration(double(item.duration.total_fractional_seconds()));
     path_item->set_direction(item.angle);
 
     //we add each path item coordinate to the global coordinate list
@@ -1636,7 +1665,7 @@ void PbCreator::add_path_item(pbnavitia::StreetNetwork* sn, const ng::PathItem& 
 }
 
 void PbCreator::fill_street_sections(const type::EntryPoint& ori_dest, const georef::Path& path,
-                                     pbnavitia::Journey* pb_journey, const pt::ptime departure, 
+                                     pbnavitia::Journey* pb_journey, const pt::ptime departure,
                                      int max_depth) {
     int depth = std::min(max_depth, 3);
     if (path.path_items.empty())
@@ -1695,7 +1724,7 @@ const ng::POI* PbCreator::get_nearest_bss_station(const nt::GeographicalCoord& c
 
 const ng::POI* PbCreator::get_nearest_poi(const nt::GeographicalCoord& coord, const ng::POIType& poi_type) {
     //we loop through all poi near the coord to find a poi of the required type
-    for (const auto pair: data->geo_ref->poi_proximity_list.find_within(coord, 500)) {
+    for (const auto& pair: data->geo_ref->poi_proximity_list.find_within(coord, 500)) {
         const auto poi_idx = pair.first;
         const auto poi = data->geo_ref->pois[poi_idx];
         if (poi->poitype_idx == poi_type.idx) {
@@ -1871,22 +1900,6 @@ void PbCreator::fill_crowfly_section(const type::EntryPoint& origin, const type:
     fill(&origin, section->mutable_origin(), 2);
     fill(&destination, section->mutable_destination(), 2);
 
-    section->set_begin_date_time(navitia::to_posix_timestamp(origin_time));
-    section->set_duration(crow_fly_duration.total_seconds());
-    if (crow_fly_duration.total_seconds() > 0) {
-        section->set_length(origin.coordinates.distance_to(destination.coordinates));
-        auto* new_coord = section->add_shape();
-        new_coord->set_lon(origin.coordinates.lon());
-        new_coord->set_lat(origin.coordinates.lat());
-        new_coord = section->add_shape();
-        new_coord->set_lon(destination.coordinates.lon());
-        new_coord->set_lat(destination.coordinates.lat());
-    } else {
-        section->set_length(0);
-    }
-    section->set_end_date_time(navitia::to_posix_timestamp(origin_time + crow_fly_duration.to_posix()));
-    section->set_type(pbnavitia::SectionType::CROW_FLY);
-
     //we want to store the transportation mode used
     switch (mode) {
     case type::Mode_e::Walking:
@@ -1905,6 +1918,26 @@ void PbCreator::fill_crowfly_section(const type::EntryPoint& origin, const type:
     default:
         throw navitia::exception("Unhandled TransportCaracteristic value in pb_converter");
     }
+
+    section->set_begin_date_time(navitia::to_posix_timestamp(origin_time));
+    section->set_duration(crow_fly_duration.total_seconds());
+    if (crow_fly_duration.total_seconds() > 0) {
+        section->set_length(origin.coordinates.distance_to(destination.coordinates));
+        auto* new_coord = section->add_shape();
+        new_coord->set_lon(origin.coordinates.lon());
+        new_coord->set_lat(origin.coordinates.lat());
+        new_coord = section->add_shape();
+        new_coord->set_lon(destination.coordinates.lon());
+        new_coord->set_lat(destination.coordinates.lat());
+    } else {
+        section->set_length(0);
+        // For teleportation crow_fly (duration=0), the mode is always 'walking'
+        section->mutable_street_network()->set_mode(pbnavitia::Walking);
+    }
+    section->set_end_date_time(navitia::to_posix_timestamp(origin_time + crow_fly_duration.to_posix()));
+    section->set_type(pbnavitia::SectionType::CROW_FLY);
+
+
 }
 
 void PbCreator::fill_pb_error(const pbnavitia::Error::error_id id,
@@ -2112,4 +2145,8 @@ void PbCreator::set_publication_date(pt::ptime ptime){
     response.set_publication_date(navitia::to_posix_timestamp(ptime));
 }
 
+void PbCreator::set_next_request_date_time(uint32_t next_request_date_time){
+    response.set_next_request_date_time(next_request_date_time);
 }
+
+} // namespace navitia

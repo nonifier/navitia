@@ -108,11 +108,12 @@ class PbNestedSerializer(serpy.Serializer, PbField):
 
 
 class EnumField(jsonschema.Field):
-    def __init__(self, pb_type=None, **kwargs):
+    def __init__(self, pb_type=None, lower_case=True, **kwargs):
         schema_type = kwargs.pop('schema_type') if 'schema_type' in kwargs else str
         schema_metadata = kwargs.pop('schema_metadata') if 'schema_metadata' in kwargs else {}
+        self.lower_case = lower_case
         if pb_type:
-            schema_metadata['enum'] = self._get_all_possible_values(pb_type)
+            schema_metadata['enum'] = self._get_all_possible_values(pb_type, self.lower_case)
         super(EnumField, self).__init__(schema_type=schema_type, schema_metadata=schema_metadata, **kwargs)
 
     def as_getter(self, serializer_field_name, serializer_cls):
@@ -127,11 +128,18 @@ class EnumField(jsonschema.Field):
     def to_value(self, value):
         if value is None:
             return None
-        return value.lower()
+        if self.lower_case:
+            return value.lower()
+        else:
+            return value
 
     @staticmethod
-    def _get_all_possible_values(pb_type):
-        return [v.name for v in pb_type.DESCRIPTOR.values]
+    def _get_all_possible_values(pb_type, lower_case):
+        if lower_case:
+            return [v.name.lower() for v in pb_type.DESCRIPTOR.values]
+        else:
+            return [v.name for v in pb_type.DESCRIPTOR.values]
+
 
 
 class NestedEnumField(EnumField):
@@ -184,6 +192,11 @@ class DictGenericSerializer(serpy.DictSerializer):
     name = serpy.StrField(display_none=True)
 
 
+class DictCodeSerializer(serpy.DictSerializer):
+    type = serpy.StrField(attr='name', display_none=True)
+    value = serpy.StrField(display_none=True)
+
+
 class PbGenericSerializer(PbNestedSerializer):
     id = jsonschema.Field(schema_type=str, display_none=True, attr='uri',
                           description='Identifier of the object')
@@ -216,6 +229,12 @@ class LiteralField(jsonschema.Field):
 
     def as_getter(self, serializer_field_name, serializer_cls):
         return lambda *args, **kwargs: self.value
+
+
+class DictCommentSerializer(serpy.DictSerializer):
+    # To be compatible, type = 'standard'
+    type = LiteralField('standard', display_none=True)
+    value = serpy.StrField(attr='name', display_none=True)
 
 
 def value_by_path(obj, path, default=None):
@@ -277,7 +296,7 @@ class DoubleToStringField(Field):
 
     def to_value(self, value):
         # we don't want to loose precision while converting a double to string
-        return "{:.16g}".format(value)
+        return '%.16g' % value
 
 
 class DescribedField(LambdaField):
@@ -309,3 +328,27 @@ def make_notes(notes):
              "value": value.note,
              "internal": True}
             for value in notes]
+
+
+class NestedDictGenericField(DictGenericSerializer, NestedPropertyField):
+    pass
+
+class NestedDictCommentField(DictCommentSerializer, NestedPropertyField):
+    pass
+
+class NestedDictCodeField(DictCodeSerializer, NestedPropertyField):
+    def to_value(self, value):
+        value = super(NestedDictCodeField, self).to_value(value)
+        if not value:
+            return {}
+        for code in value:
+            if code.get('type') == 'navitia1':
+                code['type'] = 'external_code'
+        return value
+
+
+class NestedPropertiesField(NestedPropertyField):
+    def to_value(self, value):
+        if not value:
+            return {}
+        return {p.get('key'): p.get('value') for p in value}

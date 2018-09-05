@@ -40,7 +40,36 @@ import datetime
 import hashlib
 import logging
 import six
+import math
 
+
+def floor_datetime(dt, step):
+    """
+    floor the second of a datetime to the nearest multiple of step
+    >>> floor_datetime(datetime.datetime(2018, 1, 1, 10, 10, 0), 15)
+    datetime.datetime(2018, 1, 1, 10, 10)
+    >>> floor_datetime(datetime.datetime(2018, 1, 1, 10, 10, 12), 15)
+    datetime.datetime(2018, 1, 1, 10, 10)
+    >>> floor_datetime(datetime.datetime(2018, 1, 1, 10, 10, 29), 15)
+    datetime.datetime(2018, 1, 1, 10, 10, 15)
+    >>> floor_datetime(datetime.datetime(2018, 1, 1, 10, 10, 30), 15)
+    datetime.datetime(2018, 1, 1, 10, 10, 30)
+    >>> floor_datetime(datetime.datetime(2018, 1, 1, 10, 10, 59), 15)
+    datetime.datetime(2018, 1, 1, 10, 10, 45)
+
+    >>> floor_datetime(datetime.datetime(2018, 1, 1, 10, 10), 30)
+    datetime.datetime(2018, 1, 1, 10, 10)
+    >>> floor_datetime(datetime.datetime(2018, 1, 1, 10, 10, 59), 30)
+    datetime.datetime(2018, 1, 1, 10, 10, 30)
+    >>> floor_datetime(datetime.datetime(2018, 1, 1, 10, 10, 59), 60)
+    datetime.datetime(2018, 1, 1, 10, 10)
+
+    >>> floor_datetime(datetime.datetime(2018, 1, 1, 10, 10, 28), 1)
+    datetime.datetime(2018, 1, 1, 10, 10, 28)
+    >>> floor_datetime(datetime.datetime(2018, 1, 1, 10, 10, 59), 1)
+    datetime.datetime(2018, 1, 1, 10, 10, 59)
+    """
+    return dt.replace(second=int(math.floor(dt.second/float(step))*step), microsecond=0)
 
 class RealtimeProxyError(RuntimeError):
     pass
@@ -141,7 +170,7 @@ class RealtimeProxy(six.with_metaclass(ABCMeta, object)):
             if passage.direction:
                 note = type_pb2.Note()
                 note.note = passage.direction
-                note_uri = hashlib.md5(note.note.encode('utf-8')).hexdigest()
+                note_uri = hashlib.md5(note.note.encode('utf-8', 'backslashreplace')).hexdigest()
                 note.uri = 'note:{md5}'.format(md5=note_uri)  # the id is a md5 of the direction to factorize them
                 new_dt.properties.notes.extend([note])
         stop_schedule.date_times.sort(key=lambda dt: dt.date + dt.time)
@@ -186,17 +215,17 @@ class RealtimeProxy(six.with_metaclass(ABCMeta, object)):
         pass
 
     def record_external_failure(self, message):
-        record_external_failure(message, 'realtime', self.rt_system_id)
+        record_external_failure(message, 'realtime', unicode(self.rt_system_id))
 
     def record_internal_failure(self, message):
-        params = {'realtime_system_id': repr(self.rt_system_id), 'message': message}
+        params = {'realtime_system_id': unicode(self.rt_system_id), 'message': message}
         new_relic.record_custom_event('realtime_internal_failure', params)
 
     def record_call(self, status, **kwargs):
         """
         status can be in: ok, failure
         """
-        params = {'realtime_system_id': repr(self.rt_system_id), 'status': status}
+        params = {'realtime_system_id': unicode(self.rt_system_id), 'status': status}
         params.update(kwargs)
         new_relic.record_custom_event('realtime_status', params)
 
@@ -204,6 +233,6 @@ class RealtimeProxy(six.with_metaclass(ABCMeta, object)):
         """
         status can be in: ok, failure
         """
-        params = {'realtime_system_id': repr(self.rt_system_id), 'status': status}
+        params = {'realtime_system_id': unicode(self.rt_system_id), 'status': status}
         params.update(kwargs)
         new_relic.record_custom_event('realtime_proxy_additional_info', params)

@@ -273,8 +273,8 @@ PathItem::TransportCaracteristic GeoRef::get_caracteristic(edge_t edge) const {
     throw navitia::exception("unhandled path item caracteristic");
 }
 
-double PathItem::get_length(double speed_factor) const {
-    double def_speed = default_speed[type::Mode_e::Walking];
+float PathItem::get_length(float speed_factor) const {
+    float def_speed = default_speed[type::Mode_e::Walking];
     switch (transportation) {
     case TransportCaracteristic::BssPutBack:
     case TransportCaracteristic::BssTake:
@@ -407,6 +407,8 @@ void GeoRef::build_autocomplete_list(){
     for (Way* way: ways) {
         ++pos;
         if (way->name.empty()) { continue; }
+        //skip way without edges as we don't kwow where they are (no coordinate)
+        if (way->edges.empty()) { continue; }
         if (auto admin = find_city_admin(way->admin_list)) {
             // @TODO:
             // For each object admin we have one element in the dictionnary of admins.
@@ -595,6 +597,28 @@ std::vector<Admin*> GeoRef::find_admins(const type::GeographicalCoord& coord) co
     }
 }
 
+std::vector<Admin*> GeoRef::find_admins(const type::GeographicalCoord& coord, AdminRtree& admins_tree) const {
+    std::vector<Admin*> result;
+
+    auto callback = [](Admin* admin, void* c)->bool{
+        auto* context = reinterpret_cast<std::pair<type::GeographicalCoord, std::vector<Admin*>*>*>(c);
+        if(boost::geometry::within(context->first, admin->boundary)){
+            context->second->push_back(admin);
+        }
+        return true;
+    };
+    double c[2];
+    c[0] = coord.lon();
+    c[1] = coord.lat();
+    auto context = std::make_pair(coord, &result);
+    admins_tree.Search(c, c, callback, &context);
+    if(!result.empty()){
+        return result;
+    }
+    //we didn't find any result within the boundary, as a fallback we search for the admin of the closest way
+    return this->find_admins(coord);
+}
+
 std::pair<GeoRef::ProjectionByMode, bool> GeoRef::project_stop_point(const type::StopPoint* stop_point) const {
     bool one_proj_found = false;
     ProjectionByMode projections;
@@ -608,7 +632,7 @@ std::pair<GeoRef::ProjectionByMode, bool> GeoRef::project_stop_point(const type:
         nt::Mode_e::Car // CarNoPark -> Car
     }}};
 
-    for (auto const &mode_layer: mode_to_layer) {
+    for (auto const mode_layer: mode_to_layer) {
         nt::Mode_e mode = mode_layer.first;
         nt::idx_t offset = offsets[mode_layer.second];
 
@@ -645,7 +669,7 @@ edge_t GeoRef::nearest_edge(const type::GeographicalCoord & coordinates, const p
     boost::optional<edge_t> res;
     float min_dist = 0., cur_dist = 0.;
     double coslat = ::cos(coordinates.lat() * type::GeographicalCoord::N_DEG_TO_RAD);
-    for (const auto pair_coord : prox.find_within(coordinates, horizon)) {
+    for (const auto& pair_coord : prox.find_within(coordinates, horizon)) {
         //we increment the index to get the vertex in the other graph
         const auto u = pair_coord.first + offset;
 

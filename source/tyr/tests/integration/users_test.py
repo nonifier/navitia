@@ -1,3 +1,33 @@
+# coding: utf-8
+# Copyright (c) 2001-2018, Canal TP and/or its affiliates. All rights reserved.
+#
+# This file is part of Navitia,
+#     the software to build cool stuff with public transport.
+#
+#     powered by Canal TP (www.canaltp.fr).
+# Help us simplify mobility and open public transport:
+#     a non ending quest to the responsive locomotion way of traveling!
+#
+# LICENCE: This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program. If not, see <http://www.gnu.org/licenses/>.
+#
+# Stay tuned using
+# twitter @navitia
+# IRC #navitia on freenode
+# https://groups.google.com/d/forum/navitia
+# www.navitia.io
+
+from __future__ import absolute_import, print_function, division
 from tests.check_utils import api_get, api_post, api_delete, api_put, _dt
 import json
 import pytest
@@ -150,7 +180,7 @@ def test_add_user_without_shape(mock_rabbit):
     resp = api_post('/v0/users/', data=data, content_type='application/json')
 
     def check(u):
-        gen = (k for k in user if k is not 'shape')
+        gen = (k for k in user if k != 'shape')
         for k in gen:
             assert u[k] == user[k]
         assert u['end_point']['name'] == 'navitia.io'
@@ -191,7 +221,7 @@ def test_add_user(mock_rabbit, geojson_polygon):
     resp = api_post('/v0/users/', data=data, content_type='application/json')
 
     def check(u):
-        gen = (k for k in user if k is not 'shape')
+        gen = (k for k in user if k != 'shape')
         for k in gen:
             assert u[k] == user[k]
         assert u['end_point']['name'] == 'navitia.io'
@@ -571,7 +601,7 @@ def test_get_user_with_shape(create_user, geojson_polygon):
     We start by creating the user with a shape,
     and we test that the attribute shape={} and has_shape = True
     """
-    print api_get('/v0/users')
+    print(api_get('/v0/users'))
     resp = api_get('/v0/users/{}'.format(create_user))
 
     assert resp['has_shape'] is True
@@ -596,7 +626,7 @@ def test_get_user_without_shape(create_user_without_shape):
     and we test that  shape = None and has_shape = False
     """
     resp = api_get('/v0/users/{}'.format(create_user_without_shape))
-    print resp['shape']
+    print(resp['shape'])
     assert resp['has_shape'] is False
     assert resp['shape'] is None
     assert resp['shape'] is None

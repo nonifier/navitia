@@ -33,6 +33,7 @@ www.navitia.io
 
 #include <boost/geometry/geometries/polygon.hpp>
 #include <unordered_map>
+#include <RTree/RTree.h>
 
 namespace nt = navitia::type;
 
@@ -40,6 +41,7 @@ namespace navitia {
 
     namespace georef {
         typedef boost::geometry::model::polygon<navitia::type::GeographicalCoord> polygon_type;
+        typedef boost::geometry::model::multi_polygon<polygon_type> multi_polygon_type;
 
         struct Admin : nt::Header, nt::Nameable {
             const static type::Type_e type = type::Type_e::Admin;
@@ -62,7 +64,7 @@ namespace navitia {
             std::string comment;
 
             nt::GeographicalCoord coord;
-            polygon_type boundary;
+            multi_polygon_type boundary;
             std::vector<const Admin*> admin_list;
             std::vector<const nt::StopArea*> main_stop_areas;
 
@@ -79,5 +81,8 @@ namespace navitia {
                         & name & uri & coord & admin_list & main_stop_areas & label & odt_stop_points & postal_codes;
             }
         };
+
+        using AdminRtree = RTree<Admin*, double, 2>;
+        AdminRtree build_admins_tree(const std::vector<Admin*> admins);
     }
 }

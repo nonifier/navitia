@@ -1,28 +1,28 @@
 /* Copyright © 2001-2014, Canal TP and/or its affiliates. All rights reserved.
-  
+
 This file is part of Navitia,
     the software to build cool stuff with public transport.
- 
+
 Hope you'll enjoy and contribute to this project,
     powered by Canal TP (www.canaltp.fr).
 Help us simplify mobility and open public transport:
     a non ending quest to the responsive locomotion way of traveling!
-  
+
 LICENCE: This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as published by
 the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
-   
+
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 GNU Affero General Public License for more details.
-   
+
 You should have received a copy of the GNU Affero General Public License
 along with this program. If not, see <http://www.gnu.org/licenses/>.
-  
+
 Stay tuned using
-twitter @navitia 
+twitter @navitia
 IRC #navitia on freenode
 https://groups.google.com/d/forum/navitia
 www.navitia.io
@@ -57,11 +57,7 @@ BOOST_AUTO_TEST_CASE(test_protobuff) {
     b.connection("stop3", "stop3", 120);
     b.connection("stop4", "stop4", 120);
     b.connection("stop5", "stop5", 120);
-    b.finish();
-    b.generate_dummy_basis();
-    b.data->pt_data->index();
-    b.data->build_raptor();
-    b.data->build_uri();
+    b.make();
     b.data->compute_labels();
     b.data->meta->production_date = boost::gregorian::date_period(boost::gregorian::date(2012,06,14), boost::gregorian::days(7));
 
@@ -127,12 +123,12 @@ BOOST_AUTO_TEST_CASE(test_protobuff) {
         auto t = resp.tickets(i);
         ticket[t.id()] = t;
     }
-    BOOST_CHECK_EQUAL(ticket[pb_fare.ticket_id(0)].name(), "price1");
+    BOOST_CHECK_EQUAL(ticket[pb_fare.ticket_id(0)].name(), "Ticket vj 1");
     BOOST_CHECK_EQUAL(ticket[pb_fare.ticket_id(0)].cost().value(), 100);
     BOOST_CHECK_EQUAL(ticket[pb_fare.ticket_id(0)].cost().currency(), "euro");
     BOOST_CHECK_EQUAL(ticket[pb_fare.ticket_id(0)].section_id_size(), 1);
     BOOST_CHECK_EQUAL(ticket[pb_fare.ticket_id(0)].section_id(0), "section_1");
-    BOOST_CHECK_EQUAL(ticket[pb_fare.ticket_id(1)].name(), "price2");
+    BOOST_CHECK_EQUAL(ticket[pb_fare.ticket_id(1)].name(), "Ticket vj 2");
     BOOST_CHECK_EQUAL(ticket[pb_fare.ticket_id(1)].cost().value(), 200);
     BOOST_CHECK_EQUAL(ticket[pb_fare.ticket_id(1)].cost().currency(), "euro");
     BOOST_CHECK_EQUAL(ticket[pb_fare.ticket_id(1)].section_id(0), "section_3");
@@ -148,11 +144,7 @@ BOOST_AUTO_TEST_CASE(test_protobuff_no_data) {
     b.connection("stop3", "stop3", 120);
     b.connection("stop4", "stop4", 120);
     b.connection("stop5", "stop5", 120);
-    b.generate_dummy_basis();
-    b.finish();
-    b.data->pt_data->index();
-    b.data->build_raptor();
-    b.data->build_uri();
+    b.make();
     b.data->compute_labels();
     b.data->meta->production_date = boost::gregorian::date_period(boost::gregorian::date(2012,06,14), boost::gregorian::days(7));
 

@@ -69,6 +69,20 @@ class SyntheseRoutePoint(object):
 class Synthese(RealtimeProxy):
     """
     class managing calls to timeo external service providing real-time next passages
+
+
+    curl example to check/test that external service is working:
+    curl -X GET '{server}?SERVICE=tdg&roid={stop_code}&rn={nb_desired}&date={datetime}'
+
+    {nb_desired} and {datetime} can be empty
+    {datetime} is on using format '%Y-%m-%d %H-%M' which is urlencoded (' ' > '%20')
+
+    On the response, Navitia matches route-point's {route_codes} (see details in _find_route_point_passages()).
+    {route_codes} and {stop_code} are provided using the same code key, named after
+    the 'destination_id_tag' if provided on connector's init, or the 'id' otherwise.
+
+    In practice it will look like:
+    curl -X GET 'http://bobito.fr/?SERVICE=tdg&roid=68435211116990230&rn=5&date=2018-06-11%2011:13'
     """
 
     def __init__(self, id, service_url, timezone, object_id_tag=None, destination_id_tag=None, instance=None,
@@ -95,7 +109,10 @@ class Synthese(RealtimeProxy):
         """
          used as the cache key. we use the rt_system_id to share the cache between servers in production
         """
-        return self.rt_system_id
+        try:
+            return self.rt_system_id.encode('utf-8', 'backslashreplace')
+        except:
+            return self.rt_system_id
 
     @cache.memoize(app.config['CACHE_CONFIGURATION'].get('TIMEOUT_SYNTHESE', 30))
     def _call_synthese(self, url):
@@ -212,7 +229,7 @@ class Synthese(RealtimeProxy):
         return result
 
     def status(self):
-        return {'id': self.rt_system_id,
+        return {'id': unicode(self.rt_system_id),
                 'timeout': self.timeout,
                 'circuit_breaker': {'current_state': self.breaker.current_state,
                                     'fail_counter': self.breaker.fail_counter,

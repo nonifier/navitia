@@ -33,8 +33,9 @@ from __future__ import absolute_import, print_function, unicode_literals, divisi
 from contextlib import contextmanager
 import queue
 from threading import Lock
-from flask.ext.restful import abort
+from flask_restful import abort
 from zmq import green as zmq
+import copy
 
 from jormungandr.exceptions import TechnicalError
 from navitiacommon import response_pb2, request_pb2, type_pb2
@@ -67,7 +68,7 @@ type_to_pttype = {
       "calendar": request_pb2.PlaceCodeRequest.Calendar
 }
 
-STREET_NETWORK_MODES = ('walking', 'car', 'bss', 'bike')
+STREET_NETWORK_MODES = ('walking', 'car', 'bss', 'bike', 'ridesharing')
 
 @app.before_request
 def _init_g():
@@ -130,12 +131,25 @@ class Instance(object):
         self.schedule = schedule.MixedSchedule(self)
         self.realtime_proxy_manager = realtime_schedule.RealtimeProxyManager(realtime_proxies_configuration, self)
 
-        self.autocomplete = global_autocomplete.get(autocomplete_type)
-        if not self.autocomplete:
-            raise TechnicalError('impossible to find autocomplete system {} '
+        self._autocomplete_type = autocomplete_type
+        if self._autocomplete_type is not None and self._autocomplete_type not in global_autocomplete:
+            raise RuntimeError('impossible to find autocomplete system {} '
                                  'cannot initialize instance {}'.format(autocomplete_type, name))
 
         self.zmq_socket_type = zmq_socket_type
+
+    @property
+    def autocomplete(self):
+        if self._autocomplete_type:
+            # retrocompat: we need to continue to read configuration from file
+            # while we migrate to database configuration
+            return global_autocomplete.get(self._autocomplete_type)
+        backend = global_autocomplete.get(self.autocomplete_backend)
+        if backend is None:
+            raise RuntimeError('impossible to find autocomplete {} for instance {}'
+                               .format(self.autocomplete_backend, self.name))
+        return backend
+
 
     def get_models(self):
         if self.name not in g.instances_model:
@@ -194,6 +208,11 @@ class Instance(object):
     def journey_order(self):
         instance_db = self.get_models()
         return get_value_or_default('journey_order', instance_db, self.name)
+
+    @property
+    def autocomplete_backend(self):
+        instance_db = self.get_models()
+        return get_value_or_default('autocomplete_backend', instance_db, self.name)
 
     @property
     def max_walking_duration_to_pt(self):
@@ -366,6 +385,42 @@ class Instance(object):
         instance_db = self.get_models()
         return get_value_or_default('realtime_pool_size', instance_db, self.name)
 
+    @property
+    def min_nb_journeys(self):
+        instance_db = self.get_models()
+        return get_value_or_default('min_nb_journeys', instance_db, self.name)
+
+    @property
+    def max_nb_journeys(self):
+        instance_db = self.get_models()
+        return get_value_or_default('max_nb_journeys', instance_db, self.name)
+
+    @property
+    def min_journeys_calls(self):
+        instance_db = self.get_models()
+        return get_value_or_default('min_journeys_calls', instance_db, self.name)
+
+    @property
+    def max_successive_physical_mode(self):
+        instance_db = self.get_models()
+        return get_value_or_default('max_successive_physical_mode', instance_db, self.name)
+
+    @property
+    def final_line_filter(self):
+        instance_db = self.get_models()
+        return get_value_or_default('final_line_filter', instance_db, self.name)
+
+    @property
+    def max_extra_second_pass(self):
+        instance_db = self.get_models()
+        return get_value_or_default('max_extra_second_pass', instance_db, self.name)
+
+    @property
+    def max_nb_crowfly_by_mode(self):
+        instance_db = self.get_models()
+        # the value by default is a dict...
+        return copy.deepcopy(get_value_or_default('max_nb_crowfly_by_mode', instance_db, self.name))
+
     @contextmanager
     def socket(self, context):
         socket = None
@@ -409,7 +464,6 @@ class Instance(object):
                 request.request_id = flask.request.id
             except RuntimeError:
                 # we aren't in a flask context, so there is no request
-                logger.info("we aren't in a flask context, so there is no request")
 
                 if 'flask_request_id' in kwargs:
                     request.request_id = kwargs['flask_request_id']
@@ -434,7 +488,7 @@ class Instance(object):
         req = request_pb2.Request()
         req.requested_api = type_pb2.place_uri
         req.place_uri.uri = id_
-        return self.send_and_receive(req)
+        return self.send_and_receive(req, timeout=app.config.get('INSTANCE_FAST_TIMEOUT', 1000))
 
     def has_id(self, id_):
         """
@@ -466,7 +520,7 @@ class Instance(object):
         req.place_code.type_code = "external_code"
         req.place_code.code = id_
         #we set the timeout to 1s
-        return self.send_and_receive(req, 1000)
+        return self.send_and_receive(req, timeout=app.config.get('INSTANCE_FAST_TIMEOUT', 1000))
 
     def has_external_code(self, type_, id_):
         """
@@ -548,7 +602,7 @@ class Instance(object):
 
     def direct_path(self, mode, pt_object_origin, pt_object_destination, fallback_extremity, request, direct_path_type):
         """
-        :param fallback_extremity: is a PeriodExtremity (a datetime and it's meaning on the fallback period)
+        :param fallback_extremity: is a PeriodExtremity (a datetime and its meaning on the fallback period)
         """
         service = self.get_street_network(mode, request)
         if not service:

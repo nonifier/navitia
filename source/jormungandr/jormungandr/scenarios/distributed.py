@@ -33,7 +33,7 @@ from jormungandr.scenarios import new_default
 from jormungandr.utils import PeriodExtremity
 from jormungandr.street_network.street_network import StreetNetworkPathType
 from jormungandr.scenarios.helper_classes import *
-from jormungandr.scenarios.utils import fill_uris
+from jormungandr.scenarios.utils import fill_uris, switch_back_to_ridesharing
 
 
 class Scenario(new_default.Scenario):
@@ -48,6 +48,7 @@ class Scenario(new_default.Scenario):
 
         return the list of all responses
         """
+
         logger = logging.getLogger(__name__)
         logger.debug('request datetime: %s', request['datetime'])
 
@@ -85,7 +86,7 @@ class Scenario(new_default.Scenario):
                                                          streetnetwork_path_type=StreetNetworkPathType.DIRECT)
                     for mode in requested_dep_modes]
 
-        # We'd like to get the know the duration a direct path to do some optimizations in ProximitiesByCrowflyPool and
+        # We'd like to get the duration of a direct path to do some optimizations in ProximitiesByCrowflyPool and
         # FallbackDurationsPool.
         # Note :direct_paths_by_mode is a dict of mode vs future of a direct paths, this line is not blocking
         direct_paths_by_mode = streetnetwork_path_pool.get_all_direct_paths()
@@ -95,14 +96,16 @@ class Scenario(new_default.Scenario):
                                                                requested_place_obj=requested_orig_obj,
                                                                modes=requested_dep_modes,
                                                                request=request,
-                                                               direct_paths_by_mode=direct_paths_by_mode)
+                                                               direct_paths_by_mode=direct_paths_by_mode,
+                                                               max_nb_crowfly_by_mode=request['max_nb_crowfly_by_mode'])
 
         dest_proximities_by_crowfly = ProximitiesByCrowflyPool(future_manager=future_manager,
                                                                instance=instance,
                                                                requested_place_obj=requested_dest_obj,
                                                                modes=requested_arr_modes,
                                                                request=request,
-                                                               direct_paths_by_mode=direct_paths_by_mode)
+                                                               direct_paths_by_mode=direct_paths_by_mode,
+                                                               max_nb_crowfly_by_mode=request['max_nb_crowfly_by_mode'])
 
         orig_places_free_access = PlacesFreeAccess(future_manager=future_manager,
                                                    instance=instance,
@@ -158,6 +161,8 @@ class Scenario(new_default.Scenario):
         for mode in requested_dep_modes:
             dp = direct_paths_by_mode.get(mode).wait_and_get()
             if getattr(dp, "journeys", None):
+                if mode == "ridesharing":
+                    switch_back_to_ridesharing(dp, True)
                 res.append(dp)
 
         # completed_pt_journeys may contain None and res must be a list of protobuf journey

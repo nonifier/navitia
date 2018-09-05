@@ -66,8 +66,8 @@ def compare(obj1, obj2, compare_generator):
     from any values returned by the other generator
     """
     return all(a == b for a, b in zip_longest(compare_generator(obj1),
-                                                         compare_generator(obj2),
-                                                         fillvalue=object()))
+                                              compare_generator(obj2),
+                                              fillvalue=object()))
 
 
 def are_equals(journey1, journey2):
@@ -220,9 +220,7 @@ def get_or_default(request, val, default):
     is not in the dict or if the value is None
     """
     val = request.get(val, default)
-    if val is not None:
-        return val
-    return default
+    return val if val is not None else default
 
 
 def updated_common_journey_request_with_default(request, instance):
@@ -270,25 +268,28 @@ def updated_request_with_default(request, instance):
         request['_min_bike'] = instance.min_bike
 
 
-def change_ids(new_journeys, journey_count):
+def change_ids(new_journeys, response_index):
     """
     we have to change some id's on the response not to have id's collision between response
 
     we need to change the fare id , the section id and the fare ref in the journey
     """
-    #we need to change the fare id, the section id and the fare ref in the journey
-    for ticket in new_journeys.tickets:
-        ticket.id = ticket.id + '_' + six.text_type(journey_count)
-        for i in range(len(ticket.section_id)):
-            ticket.section_id[i] = ticket.section_id[i] + '_' + six.text_type(journey_count)
+    # we need to change the fare id, the section id and the fare ref in the journey
+    def _change_id(old_id):
+        return '{id}_{response_index}'.format(id=old_id, response_index=response_index)
 
-    for new_journey in new_journeys.journeys:
+    for ticket in new_journeys.tickets:
+        ticket.id = _change_id(ticket.id)
+        for i, _ in enumerate(ticket.section_id):
+            ticket.section_id[i] = _change_id(ticket.section_id[i])
+
+    for count, new_journey in enumerate(new_journeys.journeys):
         for i in range(len(new_journey.fare.ticket_id)):
-            new_journey.fare.ticket_id[i] = new_journey.fare.ticket_id[i] \
-                                            + '_' + six.text_type(journey_count)
+            # the ticket_id inside of journeys must be the same as the one at the root of journey
+            new_journey.fare.ticket_id[i] = _change_id(new_journey.fare.ticket_id[i])
 
         for section in new_journey.sections:
-            section.id = section.id + '_' + six.text_type(journey_count)
+            section.id = _change_id(section.id)
 
 
 def fill_uris(resp):
@@ -325,6 +326,8 @@ def gen_all_combin(n, t):
     Combination = {c_1, c_2, ..., c_t |  all c_t belongs to S }
     where S is a set whose card(S) = n, c_t are indexes of elements in S (c as choice)
 
+    Note that when n <= t, we consider there is only one possible combination.
+
     The function is a implementation of the algorithm L from the book of DONALD E.KNUTH's
     <The art of computer programming> Section7.2.1.3
 
@@ -333,8 +336,21 @@ def gen_all_combin(n, t):
     >>> list(gen_all_combin(4, 3))
     [[0, 1, 2], [0, 1, 3], [0, 2, 3], [1, 2, 3]]
 
+    >>> list(gen_all_combin(3, 3))
+    [[0, 1, 2]]
+
+    We assume that it's also valid when n < t
+    >>> list(gen_all_combin(3, 4))
+    [[0, 1, 2]]
+
     """
     import numpy as np
+    if n <= t:
+        """
+        nothing to do when n <= t, there is only one possible combination
+        """
+        yield range(n)
+        return
     # c is an array of choices
     c = np.ones(t+2, dtype=int).tolist()
     # init
@@ -363,3 +379,51 @@ def add_link(resp, rel, **kwargs):
             args.values.extend(v)
         else:
             args.values.extend([v])
+
+
+def _is_fake_car_section(section):
+    """
+    This function tests if the section is a fake car section
+    """
+    return (section.type == response_pb2.STREET_NETWORK or section.type == response_pb2.CROW_FLY) and \
+            section.street_network.mode == response_pb2.Car
+
+
+def switch_back_to_ridesharing(response, is_first_section):
+    """
+    :param response: a pb_response returned by kraken
+    :param is_first_section: a bool indicates that if the first_section or last_section is a ridesharing section
+                             True if the first_section is, False if the last_section is
+    """
+    for journey in response.journeys:
+        if len(journey.sections) == 0:
+            continue
+        section_idx = 0 if is_first_section else -1
+        section = journey.sections[section_idx]
+        if _is_fake_car_section(section):
+            section.street_network.mode = response_pb2.Ridesharing
+            journey.durations.ridesharing += section.duration
+            journey.durations.car -= section.duration
+            journey.distances.ridesharing += section.length
+            journey.distances.car -= section.length
+
+
+def nCr(n, r):
+    """
+    Classic combination operator but accept r > n
+    :param n: objects
+    :param r: sample
+    :return: answer
+    >>> nCr(10, 11)
+    1
+    >>> nCr(5, 2)
+    10
+    """
+    if n <= r:
+        """
+        We assume that it's valid when n <= r 
+        """
+        return 1
+    import math
+    f = math.factorial
+    return int(f(n) / f(r) / f(n-r))

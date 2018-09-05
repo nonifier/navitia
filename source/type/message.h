@@ -1,28 +1,28 @@
 /* Copyright © 2001-2014, Canal TP and/or its affiliates. All rights reserved.
-  
+
 This file is part of Navitia,
     the software to build cool stuff with public transport.
- 
+
 Hope you'll enjoy and contribute to this project,
     powered by Canal TP (www.canaltp.fr).
 Help us simplify mobility and open public transport:
     a non ending quest to the responsive locomotion way of traveling!
-  
+
 LICENCE: This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as published by
 the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
-   
+
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 GNU Affero General Public License for more details.
-   
+
 You should have received a copy of the GNU Affero General Public License
 along with this program. If not, see <http://www.gnu.org/licenses/>.
-  
+
 Stay tuned using
-twitter @navitia 
+twitter @navitia
 IRC #navitia on freenode
 https://groups.google.com/d/forum/navitia
 www.navitia.io
@@ -31,8 +31,6 @@ www.navitia.io
 #pragma once
 
 #include <boost/date_time/posix_time/posix_time.hpp>
-
-
 #include <boost/serialization/weak_ptr.hpp>
 #include <boost/serialization/serialization.hpp>
 #include <boost/date_time/gregorian/greg_serialize.hpp>
@@ -49,13 +47,15 @@ www.navitia.io
 #include <map>
 #include <vector>
 #include <string>
+
+#include "utils/exception.h"
 #include "utils/serialization_unique_ptr.h"
 #include "utils/serialization_unique_ptr_container.h"
 
 #include "type/type.h"
 
-namespace navitia { namespace type {
-
+namespace navitia {
+namespace type {
 namespace disruption {
 
 enum class Effect {
@@ -189,7 +189,22 @@ struct LineSection {
     void serialize(Archive& ar, const unsigned int) {
         ar & line & start_point & end_point & routes;
     }
+
+    std::set<StopPoint*> get_stop_points_section() const {
+        std::set<StopPoint*> res;
+        for(const auto* route: routes) {
+            route->for_each_vehicle_journey([&](const VehicleJourney& vj) {
+                res = vj.get_sections_stop_points(start_point, end_point);
+                if(res.empty()) {
+                    return true;
+                }
+                return false;
+            });
+        }
+        return res;
+    }
 };
+
 typedef boost::variant<
     UnknownPtObj,
     Network*,
@@ -265,6 +280,7 @@ struct AuxInfoForMetaVJ {
 }
 
 struct Impact {
+    using SharedImpact = boost::shared_ptr<Impact>;
     std::string uri;
     boost::posix_time::ptime created_at;
     boost::posix_time::ptime updated_at;
@@ -300,13 +316,13 @@ struct Impact {
 
     // add the ptobj to the enformed entities and make all the needed backref
     // Note: it's a static method because we need the shared_ptr to the impact
-    static void link_informed_entity(PtObj ptobj, boost::shared_ptr<Impact>& impact, const boost::gregorian::date_period&, type::RTLevel);
+    static void link_informed_entity(PtObj ptobj, SharedImpact& impact, const boost::gregorian::date_period&, type::RTLevel);
 
     bool is_valid(const boost::posix_time::ptime& current_time, const boost::posix_time::time_period& action_period) const;
     bool is_relevant(const std::vector<const StopTime*>& stop_times) const;
     bool is_only_line_section() const;
     bool is_line_section_of(const Line&) const;
-
+    Indexes get(Type_e target, const PT_Data & pt_data) const;
     const type::ValidityPattern get_impact_vp(const boost::gregorian::date_period& production_date) const;
 
     bool operator<(const Impact& other);
@@ -371,8 +387,8 @@ struct Disruption {
            & created_at & updated_at & cause & impacts & localization & tags & note & contributor & properties;
     }
 
-    void add_impact(const boost::shared_ptr<Impact>& impact, DisruptionHolder& holder);
-    const std::vector<boost::shared_ptr<Impact>>& get_impacts() const {
+    void add_impact(const Impact::SharedImpact& impact, DisruptionHolder& holder);
+    const std::vector<Impact::SharedImpact>& get_impacts() const {
         return impacts;
     }
 
@@ -382,7 +398,7 @@ private:
     //Disruption have the ownership of the Impacts.  Impacts are
     //shared_ptr and not unique_ptr because there are weak_ptr
     //pointing to them in the impacted objects
-    std::vector<boost::shared_ptr<Impact>> impacts;
+    std::vector<Impact::SharedImpact> impacts;
 };
 
 class DisruptionHolder {
@@ -397,7 +413,9 @@ public:
     void clean_weak_impacts();
     void forget_vj(const VehicleJourney*);
     const std::vector<boost::weak_ptr<Impact>>&
-    get_weak_impacts() const{ return weak_impacts;}
+        get_weak_impacts() const{ return weak_impacts;}
+    boost::weak_ptr<Impact> get_weak_impact(size_t id) const { return weak_impacts[id]; }
+    boost::shared_ptr<Impact> get_impact(size_t id) const { return weak_impacts[id].lock(); }
     // causes, severities and tags are a pool (weak_ptr because the owner ship
     // is in the linked disruption or impact)
     std::map<std::string, boost::weak_ptr<Cause>> causes; //to be wrapped

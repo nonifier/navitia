@@ -31,9 +31,7 @@ from __future__ import absolute_import
 import mock
 from mock import PropertyMock
 
-from jormungandr.parking_space_availability import AbstractParkingPlacesProvider
-from jormungandr.parking_space_availability import Stands
-from jormungandr.parking_space_availability import get_from_to_pois_of_journeys
+from jormungandr.parking_space_availability import AbstractParkingPlacesProvider, Stands, StandsStatus, get_from_to_pois_of_journeys
 from jormungandr.ptref import FeedPublisher
 from tests.check_utils import is_valid_poi, get_not_null, journey_basic_query
 from tests.tests_mechanism import AbstractTestFixture, dataset
@@ -50,7 +48,7 @@ class MockBssProvider(AbstractParkingPlacesProvider):
     def get_informations(self, poi):
         available_places = 13 if poi['id'] == 'poi:station_1' else 99
         available_bikes = 3 if poi['id'] == 'poi:station_1' else 98
-        return Stands(available_places=available_places, available_bikes=available_bikes)
+        return Stands(available_places=available_places, available_bikes=available_bikes, status=StandsStatus.open)
 
     def status(self):
         return {}
@@ -113,6 +111,7 @@ class TestBssProvider(AbstractTestFixture):
                     assert stands['available_places'] == 13
                     assert stands['available_bikes'] == 3
                     assert stands['total_stands'] == 16
+                    assert stands['status'] == 'open'
                 else:
                     assert not 'stands' in p
 
@@ -131,10 +130,12 @@ class TestBssProvider(AbstractTestFixture):
                         assert stands['available_places'] == 13
                         assert stands['available_bikes'] == 3
                         assert stands['total_stands'] == 16
+                        assert stands['status'] == 'open'
                     elif p['id'] == 'poi:station_2':
                         assert stands['available_places'] == 99
                         assert stands['available_bikes'] == 98
                         assert stands['total_stands'] == 197
+                        assert stands['status'] == 'open'
                 else:
                     assert not 'stands' in p
 
@@ -171,6 +172,7 @@ class TestBssProvider(AbstractTestFixture):
             assert stands['available_places'] == 13
             assert stands['available_bikes'] == 3
             assert stands['total_stands'] == 16
+            assert stands['status'] == 'open'
 
     def test_pois_with_stands_on_second_poi(self):
         with mock_bss_providers(pois_supported=[]):
@@ -186,7 +188,7 @@ class TestBssProvider(AbstractTestFixture):
             assert stands['available_places'] == 99
             assert stands['available_bikes'] == 98
             assert stands['total_stands'] == 197
-
+            assert stands['status'] == 'open'
 
     def test_pois_with_stands_on_first_parking_poi(self):
         with mock_bss_providers(pois_supported=[]):
@@ -232,6 +234,7 @@ class TestBssProvider(AbstractTestFixture):
             assert stands['available_places'] == 13
             assert stands['available_bikes'] == 3
             assert stands['total_stands'] == 16
+            assert stands['status'] == 'open'
 
     def test_pois_with_stands_on_second_place(self):
         with mock_bss_providers(pois_supported=[]):
@@ -247,6 +250,7 @@ class TestBssProvider(AbstractTestFixture):
             assert stands['available_places'] == 99
             assert stands['available_bikes'] == 98
             assert stands['total_stands'] == 197
+            assert stands['status'] == 'open'
 
     def test_pois_with_stands_on_first_parking_place(self):
         with mock_bss_providers(pois_supported=[]):
@@ -301,6 +305,7 @@ class TestBssProvider(AbstractTestFixture):
                         assert stands['available_places'] == 13
                         assert stands['available_bikes'] == 3
                         assert stands['total_stands'] == 16
+                        assert stands['status'] == 'open'
                     else:
                         assert not 'stands' in p[embedded_type]
                 else:
@@ -326,10 +331,12 @@ class TestBssProvider(AbstractTestFixture):
                         assert stands['available_places'] == 13
                         assert stands['available_bikes'] == 3
                         assert stands['total_stands'] == 16
+                        assert stands['status'] == 'open'
                     elif p[embedded_type]['id'] == 'poi:station_2':
                         assert stands['available_places'] == 99
                         assert stands['available_bikes'] == 98
                         assert stands['total_stands'] == 197
+                        assert stands['status'] == 'open'
                     else:
                         assert not 'stands' in p[embedded_type]
                 else:
@@ -409,6 +416,7 @@ class TestBssProvider(AbstractTestFixture):
                     assert poi['stands']['available_places'] == 13
                     assert poi['stands']['available_bikes'] == 3
                     assert poi['stands']['total_stands'] == 16
+                    assert poi['stands']['status'] == 'open'
                 else:
                     assert 'stands' not in poi
 

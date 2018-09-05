@@ -1,28 +1,28 @@
 /* Copyright © 2001-2014, Canal TP and/or its affiliates. All rights reserved.
-  
+
 This file is part of Navitia,
     the software to build cool stuff with public transport.
- 
+
 Hope you'll enjoy and contribute to this project,
     powered by Canal TP (www.canaltp.fr).
 Help us simplify mobility and open public transport:
     a non ending quest to the responsive locomotion way of traveling!
-  
+
 LICENCE: This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as published by
 the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
-   
+
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 GNU Affero General Public License for more details.
-   
+
 You should have received a copy of the GNU Affero General Public License
 along with this program. If not, see <http://www.gnu.org/licenses/>.
-  
+
 Stay tuned using
-twitter @navitia 
+twitter @navitia
 IRC #navitia on freenode
 https://groups.google.com/d/forum/navitia
 www.navitia.io
@@ -75,7 +75,7 @@ struct normal_speed_provider {
 template <typename speed_provider_trait>
 struct routing_api_data {
 
-    routing_api_data(float distance_a_b = 200, bool activate_pt = true) : distance_ab(distance_a_b) {
+    routing_api_data(double distance_a_b = 200, bool activate_pt = true) : distance_ab(distance_a_b) {
         /*
 
            K  ------------------------------ J
@@ -420,6 +420,12 @@ struct routing_api_data {
             b.data->pt_data->headsign_handler.affect_headsign_to_stop_time(
                                 b.data->pt_data->vehicle_journeys.at(0)->stop_time_list.at(0), "A00");
 
+            b.vj("M", "111111", "", false, "vjM")("stop_point:stopB", "08:01:01"_t)("stop_point:stopA", "08:01:03"_t)
+                                        .st_shape({B, I, A});
+			b.lines["M"]->code = "1M";
+			b.lines["M"]->color = "3ACCDC";
+			b.lines["M"]->text_color = "FFFFFF";
+
             //We need another route on the line A with a vj on it to test line sections disruptions
             b.vj("A", "000000", "", false, "vjA2").route("route2")
                 ("stop_point:stopB", "22:01"_t)
@@ -460,8 +466,11 @@ struct routing_api_data {
         b.manage_admin();
         b.finish();
         b.data->build_uri();
-        b.data->pt_data->index();
+        b.data->pt_data->sort_and_index();
         b.data->build_raptor();
+
+        //Add a fare_zone in stop point A
+        b.sps.begin()->second->fare_zone = "2";
 
         b.data->build_proximity_list();
         b.data->meta->production_date = boost::gregorian::date_period("20120614"_d, 365_days);
@@ -684,6 +693,13 @@ struct routing_api_data {
                 .application_periods(dis_maker_period)
                 .severity("foo")
                 .on(nt::Type_e::Line, "C")
+                .msg("try again", nt::disruption::ChannelType::sms);
+
+        disruption_maker.impact()
+                .uri("too_bad_line_section_B_stop_B_route_B3")
+                .application_periods(boost::posix_time::time_period("20120826T060000"_dt, "20120830T120000"_dt))
+                .severity("disruption")
+                .on_line_section("B", "stopB", "stopB", {"B:3"})
                 .msg("try again", nt::disruption::ChannelType::sms);
     }
 

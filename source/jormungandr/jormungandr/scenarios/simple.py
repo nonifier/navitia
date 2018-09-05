@@ -27,7 +27,7 @@
 # https://groups.google.com/d/forum/navitia
 # www.navitia.io
 from __future__ import absolute_import, print_function, unicode_literals, division
-from flask.ext.restful import abort
+from flask_restful import abort
 from flask.globals import request
 from jormungandr.utils import date_to_timestamp, timestamp_to_str, dt_to_str, timestamp_to_datetime
 
@@ -345,7 +345,6 @@ class Scenario(object):
         return self.__on_ptref("impact", type_pb2.IMPACT, request, instance)
 
     def contributors(self, request, instance):
-
         return self.__on_ptref("contributors", type_pb2.CONTRIBUTOR, request, instance)
 
     def datasets(self, request, instance):

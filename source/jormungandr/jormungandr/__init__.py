@@ -35,8 +35,8 @@ import logging.config
 import os
 from flask import Flask, got_request_exception
 from flask_restful import Api
-from flask.ext.cache import Cache
-from flask.ext.cors import CORS
+from flask_cache import Cache
+from flask_cors import CORS
 import sys
 from jormungandr.exceptions import log_exception
 from jormungandr.helper import ReverseProxied, NavitiaRequest, NavitiaRule
@@ -86,6 +86,7 @@ else:
 from jormungandr.instance_manager import InstanceManager
 
 i_manager = InstanceManager(instances_dir=app.config.get('INSTANCES_DIR', None),
+                            instance_filename_pattern=app.config.get('INSTANCES_FILENAME_PATTERN', '*.json'),
                             start_ping=app.config.get('START_MONITORING_THREAD', True))
 i_manager.initialisation()
 

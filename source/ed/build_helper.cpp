@@ -1,28 +1,28 @@
 /* Copyright © 2001-2014, Canal TP and/or its affiliates. All rights reserved.
-  
+
 This file is part of Navitia,
     the software to build cool stuff with public transport.
- 
+
 Hope you'll enjoy and contribute to this project,
     powered by Canal TP (www.canaltp.fr).
 Help us simplify mobility and open public transport:
     a non ending quest to the responsive locomotion way of traveling!
-  
+
 LICENCE: This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as published by
 the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
-   
+
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 GNU Affero General Public License for more details.
-   
+
 You should have received a copy of the GNU Affero General Public License
 along with this program. If not, see <http://www.gnu.org/licenses/>.
-  
+
 Stay tuned using
-twitter @navitia 
+twitter @navitia
 IRC #navitia on freenode
 https://groups.google.com/d/forum/navitia
 www.navitia.io
@@ -244,23 +244,38 @@ nt::VehicleJourney* VJ::make() {
 VJ& VJ::st_shape(const navitia::type::LineString& shape) {
     assert(shape.size() >= 2);
     assert(stop_times.size() >= 2);
-    assert(stop_times.back().st.stop_point->coord == shape.back());
-    assert(stop_times.at(stop_times.size() - 2).st.stop_point->coord == shape.front());
     auto s = boost::make_shared<navitia::type::LineString>(shape);
     stop_times.back().st.shape_from_prev = s;
     return *this;
 }
 
-VJ& VJ::operator()(const std::string &stopPoint,const std::string& arrivee,
-                   const std::string& depart, uint16_t local_traffic_zone, bool drop_off_allowed,
-                   bool pick_up_allowed, int alighting_duration, int boarding_duration){
-    return (*this)(stopPoint, pt::duration_from_string(arrivee).total_seconds(),
-            pt::duration_from_string(depart).total_seconds(), local_traffic_zone,
+VJ& VJ::operator()(const std::string &stopPoint,
+                   const std::string& arrival,
+                   const std::string& departure,
+                   uint16_t local_traffic_zone,
+                   bool drop_off_allowed,
+                   bool pick_up_allowed,
+                   int alighting_duration,
+                   int boarding_duration)
+{
+    auto _departure = departure;
+    if(_departure.empty())
+        _departure = arrival;
+
+    return (*this)(stopPoint, pt::duration_from_string(arrival).total_seconds(),
+            pt::duration_from_string(_departure).total_seconds(), local_traffic_zone,
             drop_off_allowed, pick_up_allowed, alighting_duration, boarding_duration);
 }
 
-VJ & VJ::operator()(const std::string & sp_name, int arrivee, int depart, uint16_t local_trafic_zone,
-                    bool drop_off_allowed, bool pick_up_allowed, int alighting_duration, int boarding_duration){
+VJ & VJ::operator()(const std::string & sp_name,
+                    int arrival,
+                    int departure,
+                    uint16_t local_trafic_zone,
+                    bool drop_off_allowed,
+                    bool pick_up_allowed,
+                    int alighting_duration,
+                    int boarding_duration)
+{
     auto it = b.sps.find(sp_name);
     navitia::type::StopPoint* sp = nullptr;
     if(it == b.sps.end()){
@@ -307,11 +322,11 @@ VJ & VJ::operator()(const std::string & sp_name, int arrivee, int depart, uint16
     stop_time.set_pick_up_allowed(pick_up_allowed);
 
     ST st(stop_time);
-    if(depart == -1) depart = arrivee;
-    st.arrival_time = arrivee;
-    st.departure_time = depart;
-    st.alighting_time = arrivee + alighting_duration;
-    st.boarding_time = depart - boarding_duration;
+    if(departure == -1) departure = arrival;
+    st.arrival_time = arrival;
+    st.departure_time = departure;
+    st.alighting_time = arrival + alighting_duration;
+    st.boarding_time = departure - boarding_duration;
 
     stop_times.push_back(st);
     return *this;
@@ -392,6 +407,13 @@ DisruptionCreator& DisruptionCreator::tag(const std::string& t) {
     tag->uri = t;
     tag->name = t + " name";
     disruption.tags.push_back(tag);
+    return *this;
+}
+
+DisruptionCreator& DisruptionCreator::tag_if_not_empty(const std::string& t) {
+    if(t.size()) {
+        tag(t);
+    }
     return *this;
 }
 
@@ -565,7 +587,7 @@ SA builder::sa(const std::string &name, double x, double y,
     return SA(*this, name, x, y, create_sp, wheelchair_boarding, bike_accepted);
 }
 
-builder::builder(const std::string & date,
+builder::builder(const std::string& date,
                  const std::string& publisher_name,
                  const std::string& timezone_name,
                  navitia::type::TimeZoneHandler::dst_periods timezone):
@@ -797,6 +819,14 @@ void builder::finish() {
      data->build_raptor();
  }
 
+ void builder::make() {
+    generate_dummy_basis();
+    data->pt_data->sort_and_index();
+    data->build_uri();
+    data->build_raptor();
+    finish();
+}
+
 /*
 1. Initilise the first admin in the list to all stop_area and way
 2. Used for the autocomplete functional tests.
@@ -824,4 +854,34 @@ void builder::finish() {
     data->build_autocomplete();
     data->compute_labels();
 }
+
+static navitia::georef::vertex_t init_vertex(navitia::georef::GeoRef& georef){
+    navitia::georef::Vertex v;
+    v.coord.set_lon(0);
+    v.coord.set_lat(0);
+    return boost::add_vertex(v, georef.graph);
+}
+
+navitia::georef::Way* builder::add_way(const std::string& name, const std::string& way_type){
+    if (vertex_a == boost::none) {
+        vertex_a = init_vertex(*this->data->geo_ref);
+    }
+    if (vertex_b == boost::none) {
+        vertex_b = init_vertex(*this->data->geo_ref);
+    }
+    navitia::georef::Way* w = new navitia::georef::Way;
+    w->idx = this->data->geo_ref->ways.size();
+    w->name = name;
+    w->way_type = way_type;
+    w->uri = name;
+    //associate the way to an edge to make them "searchable" in the autocomplete
+    navitia::georef::Edge e;
+    e.way_idx = w->idx;
+    boost::add_edge(*this->vertex_a, *this->vertex_b, e, this->data->geo_ref->graph);
+    w->edges.push_back(std::make_pair(*this->vertex_a, *this->vertex_b));
+    this->data->geo_ref->ways.push_back(w);
+    return w;
+
+}
+
 }

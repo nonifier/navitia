@@ -34,7 +34,7 @@ from flask import logging
 import pybreaker
 import requests as requests
 from jormungandr import cache, app
-from jormungandr.realtime_schedule.realtime_proxy import RealtimeProxy, RealtimeProxyError
+from jormungandr.realtime_schedule.realtime_proxy import RealtimeProxy, RealtimeProxyError, floor_datetime
 from jormungandr.schedule import RealTimePassage
 import xml.etree.ElementTree as et
 import aniso8601
@@ -44,6 +44,57 @@ from datetime import datetime
 class Siri(RealtimeProxy):
     """
     Class managing calls to siri external service providing real-time next passages
+
+
+    curl example to check/test that external service is working:
+    curl -X POST '{server}' -d '<x:Envelope 
+    xmlns:x="http://schemas.xmlsoap.org/soap/envelope/" xmlns:wsd="http://wsdl.siri.org.uk" xmlns:siri="http://www.siri.org.uk/siri">
+        <x:Header/>
+        <x:Body>
+            <GetStopMonitoring xmlns="http://wsdl.siri.org.uk" xmlns:siri="http://www.siri.org.uk/siri">
+                <ServiceRequestInfo xmlns="">
+                    <siri:RequestTimestamp>{datetime}</siri:RequestTimestamp>
+                    <siri:RequestorRef>{requestor_ref}</siri:RequestorRef>
+                    <siri:MessageIdentifier>IDontCare</siri:MessageIdentifier>
+                </ServiceRequestInfo>
+                <Request version="1.3" xmlns="">
+                    <siri:RequestTimestamp>{datetime}</siri:RequestTimestamp>
+                    <siri:MessageIdentifier>IDontCare</siri:MessageIdentifier>
+                    <siri:MonitoringRef>{stop_code}</siri:MonitoringRef>
+                    <siri:MaximumStopVisits>{nb_desired}</siri:MaximumStopVisits>
+                </Request>
+                <RequestExtension xmlns=""/>
+            </GetStopMonitoring>
+        </x:Body>
+    </x:Envelope>'
+
+    Then Navitia matches route-points in the response using {stop_code}, {route_code} and {line_code}.
+
+    {datetime} is iso-formated: YYYY-mm-ddTHH:MM:ss.sss+HH:MM
+    {stop_code}, {route_code} and {line_code} are provided using the same code key, named after
+    the 'destination_id_tag' if provided on connector's init, or the 'id' otherwise.
+
+    In practice it will look like:
+    curl -X POST 'http://bobito.fr:8080/ProfilSiriKidfProducer-Bobito/SiriServices' -d '<x:Envelope 
+    xmlns:x="http://schemas.xmlsoap.org/soap/envelope/" xmlns:wsd="http://wsdl.siri.org.uk" xmlns:siri="http://www.siri.org.uk/siri">
+        <x:Header/>
+        <x:Body>
+            <GetStopMonitoring xmlns="http://wsdl.siri.org.uk" xmlns:siri="http://www.siri.org.uk/siri">
+                <ServiceRequestInfo xmlns="">
+                    <siri:RequestTimestamp>2018-06-11T17:21:49.703+02:00</siri:RequestTimestamp>
+                    <siri:RequestorRef>BobitoJVM</siri:RequestorRef>
+                    <siri:MessageIdentifier>IDontCare</siri:MessageIdentifier>
+                </ServiceRequestInfo>
+                <Request version="1.3" xmlns="">
+                    <siri:RequestTimestamp>2018-06-11T17:21:49.703+02:00</siri:RequestTimestamp>
+                    <siri:MessageIdentifier>IDontCare</siri:MessageIdentifier>
+                    <siri:MonitoringRef>Bobito:StopPoint:BOB:00021201:ITO</siri:MonitoringRef>
+                    <siri:MaximumStopVisits>5</siri:MaximumStopVisits>
+                </Request>
+                <RequestExtension xmlns=""/>
+            </GetStopMonitoring>
+        </x:Body>
+    </x:Envelope>'
     """
 
     def __init__(self, id, service_url, requestor_ref,
@@ -57,12 +108,17 @@ class Siri(RealtimeProxy):
         self.instance = instance
         self.breaker = pybreaker.CircuitBreaker(fail_max=app.config.get('CIRCUIT_BREAKER_MAX_SIRI_FAIL', 5),
                                                 reset_timeout=app.config.get('CIRCUIT_BREAKER_SIRI_TIMEOUT_S', 60))
+        # A step is applied on from_datetime to discretize calls and allow caching them
+        self.from_datetime_step = kwargs.get('from_datetime_step', app.config['CACHE_CONFIGURATION'].get('TIMEOUT_SIRI', 60))
 
     def __repr__(self):
         """
          used as the cache key. we use the rt_system_id to share the cache between servers in production
         """
-        return self.rt_system_id
+        try:
+            return self.rt_system_id.encode('utf-8', 'backslashreplace')
+        except:
+            return self.rt_system_id
 
     def _get_next_passage_for_route_point(self, route_point, count, from_dt, current_dt, duration=None):
         stop = route_point.fetch_stop_id(self.object_id_tag)
@@ -77,7 +133,7 @@ class Siri(RealtimeProxy):
 
     def status(self):
         return {
-            'id': self.rt_system_id,
+            'id': unicode(self.rt_system_id),
             'timeout': self.timeout,
             'circuit_breaker': {
                 'current_state': self.breaker.current_state,
@@ -117,7 +173,7 @@ class Siri(RealtimeProxy):
 
     @cache.memoize(app.config['CACHE_CONFIGURATION'].get('TIMEOUT_SIRI', 60))
     def _call_siri(self, request):
-        encoded_request = request.encode('UTF-8')
+        encoded_request = request.encode('utf-8', 'backslashreplace')
         headers = {
             "Content-Type": "text/xml; charset=UTF-8",
             "Content-Length": len(encoded_request)
@@ -169,7 +225,7 @@ class Siri(RealtimeProxy):
             </GetStopMonitoring>
           </x:Body>
         </x:Envelope>
-        """.format(dt=datetime.utcfromtimestamp(dt).isoformat(),
+        """.format(dt=floor_datetime(datetime.utcfromtimestamp(dt), self.from_datetime_step).isoformat(),
                    count=count,
                    RequestorRef=self.requestor_ref,
                    MessageIdentifier=message_identifier,

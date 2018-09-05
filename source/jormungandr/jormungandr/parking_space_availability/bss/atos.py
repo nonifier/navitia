@@ -27,21 +27,22 @@
 # IRC #navitia on freenode
 # https://groups.google.com/d/forum/navitia
 # www.navitia.io
-from __future__ import absolute_import, print_function, unicode_literals, division
 
+from __future__ import absolute_import, print_function, unicode_literals, division
+from contextlib import contextmanager
 import logging
 import pybreaker
 import zeep
 
 from jormungandr import cache, app
-from jormungandr.parking_space_availability import AbstractParkingPlacesProvider
-from jormungandr.parking_space_availability.bss.stands import Stands
+from jormungandr.parking_space_availability.bss.common_bss_provider import CommonBssProvider, BssProxyError
+from jormungandr.parking_space_availability.bss.stands import Stands, StandsStatus
 from jormungandr.ptref import FeedPublisher
 
 DEFAULT_ATOS_FEED_PUBLISHER = None
 
 
-class AtosProvider(AbstractParkingPlacesProvider):
+class AtosProvider(CommonBssProvider):
 
     def __init__(self, id_ao, network, url, operators={'keolis'}, timeout=5,
                  feed_publisher=DEFAULT_ATOS_FEED_PUBLISHER, **kwargs):
@@ -62,31 +63,42 @@ class AtosProvider(AbstractParkingPlacesProvider):
         return properties.get('operator', '').lower() in self.operators and \
                properties.get('network', '').lower() == self.network
 
-    def get_informations(self, poi):
+    def _get_informations(self, poi):
         logging.debug('building stands')
         try:
             all_stands = self.breaker.call(self._get_all_stands)
             ref = poi.get('properties', {}).get('ref')
-            if ref:
-                stands = all_stands.get(ref.lstrip('0'))
+            if not ref:
+                return Stands(0, 0, StandsStatus.unavailable)
+            stands = all_stands.get(ref.lstrip('0'))
+            if stands:
+                if stands.status != 'open':
+                    stands.available_bikes = 0
+                    stands.available_places = 0
+                    stands.total_stands = 0
+
                 return stands
         except:
             logging.getLogger(__name__).exception('transport error during call to %s bss provider', self.id_ao)
-        return None
+
+        return Stands(0, 0, StandsStatus.unavailable)
 
     @cache.memoize(app.config['CACHE_CONFIGURATION'].get('TIMEOUT_ATOS', 30))
     def _get_all_stands(self):
-        client = self._get_client()
-        if not client:
-            return {}
-        all_stands = client.service.getSummaryInformationTerminals(self.id_ao)
-        return {stands.libelle: Stands(stands.nbPlacesDispo, stands.nbVelosDispo) for stands in all_stands}
+        with self._get_client() as client:
+            all_stands = client.service.getSummaryInformationTerminals(self.id_ao)
+            return {stands.libelle: Stands(stands.nbPlacesDispo, stands.nbVelosDispo,
+                                           StandsStatus.open if stands.etatConnexion == 'CONNECTEE' else StandsStatus.unavailable)
+                    for stands in all_stands}
 
+    @contextmanager
     def _get_client(self):
-        if not self._client:
+        try:
             transport = zeep.Transport(timeout=self.timeout, operation_timeout=self.timeout)
-            self._client = zeep.Client(self.WS_URL, transport=transport)
-        return self._client
+            client = zeep.Client(self.WS_URL, transport=transport)
+            yield client
+        finally:
+            transport.session.close()
 
     def status(self):
         return {'network': self.network, 'operators': self.operators, 'id_ao': self.id_ao}

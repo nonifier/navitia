@@ -1,28 +1,28 @@
 /* Copyright © 2001-2014, Canal TP and/or its affiliates. All rights reserved.
-  
+
 This file is part of Navitia,
     the software to build cool stuff with public transport.
- 
+
 Hope you'll enjoy and contribute to this project,
     powered by Canal TP (www.canaltp.fr).
 Help us simplify mobility and open public transport:
     a non ending quest to the responsive locomotion way of traveling!
-  
+
 LICENCE: This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as published by
 the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
-   
+
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 GNU Affero General Public License for more details.
-   
+
 You should have received a copy of the GNU Affero General Public License
 along with this program. If not, see <http://www.gnu.org/licenses/>.
-  
+
 Stay tuned using
-twitter @navitia 
+twitter @navitia
 IRC #navitia on freenode
 https://groups.google.com/d/forum/navitia
 www.navitia.io
@@ -38,6 +38,8 @@ www.navitia.io
 #include "type/message.h"
 #include "type/rt_level.h"
 #include <memory>
+#include <boost/optional.hpp>
+
 
 /** Ce connecteur permet de faciliter la construction d'un réseau en code
  *
@@ -106,8 +108,8 @@ struct VJ {
     /// Lorsque le depart n'est pas specifié, on suppose que c'est le même qu'à l'arrivée
     /// Si le stopPoint n'est pas connu, on le crée avec un stopArea ayant le même nom
     VJ& operator()(const std::string& stopPoint,
-                   int arrivee,
-                   int depart = -1,
+                   int arrival,
+                   int departure = -1,
                    uint16_t local_traffic_zone = std::numeric_limits<uint16_t>::max(),
                    bool drop_off_allowed = true,
                    bool pick_up_allowed = true,
@@ -115,8 +117,8 @@ struct VJ {
                    int boarding_duration = 0);
 
     VJ& operator()(const std::string& stopPoint,
-                   const std::string& arrivee,
-                   const std::string& depart,
+                   const std::string& arrival,
+                   const std::string& departure = "",
                    uint16_t local_traffic_zone = std::numeric_limits<uint16_t>::max(),
                    bool drop_off_allowed = true,
                    bool pick_up_allowed = true,
@@ -145,11 +147,11 @@ struct SA {
     builder& b;
     navitia::type::StopArea* sa;
 
-    /// Construit un nouveau stopArea
+    /// Create a new stopArea
     SA(builder & b, const std::string & sa_name, double x, double y,
        bool create_sp = true, bool wheelchair_boarding = true, bool bike_accepted = true);
 
-    /// Construit un stopPoint appartenant au stopArea courant
+    /// Create a stopPoint in the current stopArea
     SA & operator()(const std::string & sp_name, double x = 0, double y = 0, bool wheelchair_boarding = true,
                     bool bike_accepted = true);
 };
@@ -203,6 +205,7 @@ struct DisruptionCreator {
         return *this;
     }
     DisruptionCreator& tag(const std::string& t);
+    DisruptionCreator& tag_if_not_empty(const std::string& t);
 
     DisruptionCreator& properties(const std::vector<nt::disruption::Property>& properties);
 
@@ -223,6 +226,10 @@ struct builder {
 
     std::unique_ptr<navitia::type::Data> data = std::make_unique<navitia::type::Data>();
     navitia::georef::GeoRef street_network;
+
+    //lazy init of vertexes used when creating ways with add_way
+    boost::optional<navitia::georef::vertex_t> vertex_a;
+    boost::optional<navitia::georef::vertex_t> vertex_b;
 
     /// 'date' is the beggining date of all the validity patterns
     builder(const std::string & date,
@@ -263,7 +270,7 @@ struct builder {
                     const std::string& uri="",
                     const std::string& meta_vj="");
 
-    /// Crée un nouveau stop area
+    // Create a new stop area
     SA sa(const std::string & name, double x = 0, double y = 0,
           const bool create_sp = true, const bool wheelchair_boarding = true, const bool bike_accepted = true);
     SA sa(const std::string & name, navitia::type::GeographicalCoord geo,
@@ -294,14 +301,19 @@ struct builder {
     DisruptionCreator disrupt(nt::RTLevel lvl, const std::string& uri);
     Impacter impact(nt::RTLevel lvl, std::string disruption_uri = "");
 
-    /// Crée une connexion
+    /// Make a connection
     void connection(const std::string & name1, const std::string & name2, float length);
+
     void build_blocks();
     void finish();
     void generate_dummy_basis();
     void manage_admin();
     void build_autocomplete();
     void fill_missing_destinations();
+
+    void make(); // Build the all thing !
+
+    navitia::georef::Way* add_way(const std::string& name, const std::string& way_type);
 };
 
 }

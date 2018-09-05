@@ -1,28 +1,28 @@
 /* Copyright © 2001-2014, Canal TP and/or its affiliates. All rights reserved.
-  
+
 This file is part of Navitia,
     the software to build cool stuff with public transport.
- 
+
 Hope you'll enjoy and contribute to this project,
     powered by Canal TP (www.canaltp.fr).
 Help us simplify mobility and open public transport:
     a non ending quest to the responsive locomotion way of traveling!
-  
+
 LICENCE: This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as published by
 the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
-   
+
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 GNU Affero General Public License for more details.
-   
+
 You should have received a copy of the GNU Affero General Public License
 along with this program. If not, see <http://www.gnu.org/licenses/>.
-  
+
 Stay tuned using
-twitter @navitia 
+twitter @navitia
 IRC #navitia on freenode
 https://groups.google.com/d/forum/navitia
 www.navitia.io
@@ -46,7 +46,7 @@ const auto target_e = ProjectionData::Direction::Target;
 navitia::time_duration PathFinder::crow_fly_duration(const double distance) const {
     // For BSS we want the default speed of walking, because on extremities we walk !
     const auto mode_ = mode == nt::Mode_e::Bss ? nt::Mode_e::Walking : mode;
-    return navitia::seconds(distance / (default_speed[mode_] * speed_factor));
+    return navitia::seconds(distance / double(default_speed[mode_] * speed_factor));
 }
 
 static bool is_projected_on_same_edge(const ProjectionData& p1, const ProjectionData& p2){
@@ -266,20 +266,15 @@ void PathFinder::start_distance_dijkstra(const navitia::time_duration& radius) {
     // We start dijkstra from source and target nodes
     try {
 #ifndef _DEBUG_DIJKSTRA_QUANTUM_
-        dijkstra(starting_edge[source_e], distance_visitor(radius, distances));
+        dijkstra(starting_edge[source_e],
+                 starting_edge[target_e],
+                 distance_visitor(radius, distances));
 #else
-        dijkstra(starting_edge[source_e], printer_distance_visitor(radius, distances, "source"));
+        dijkstra(starting_edge[source_e],
+                 starting_edge[target_e],
+                 printer_distance_visitor(radius, distances, "source"));
 #endif
     } catch(DestinationFound){}
-
-    try {
-#ifndef _DEBUG_DIJKSTRA_QUANTUM_
-        dijkstra(starting_edge[target_e], distance_visitor(radius, distances));
-#else
-        dijkstra(starting_edge[target_e], printer_distance_visitor(radius, distances, "target"));
-#endif
-    } catch(DestinationFound){}
-
 }
 
 void PathFinder::start_distance_or_target_dijkstra(const navitia::time_duration& radius, const std::vector<vertex_t>& destinations){
@@ -289,31 +284,23 @@ void PathFinder::start_distance_or_target_dijkstra(const navitia::time_duration&
     // We start dijkstra from source and target nodes
     try {
 #ifndef _DEBUG_DIJKSTRA_QUANTUM_
-        dijkstra(starting_edge[source_e], distance_or_target_visitor(radius, distances, destinations));
+        dijkstra(starting_edge[source_e],
+                 starting_edge[target_e],
+                 distance_or_target_visitor(radius, distances, destinations));
 #else
         dijkstra(starting_edge[source_e],
+                 starting_edge[target_e],
                  printer_distance_or_target_visitor(radius, distances, destinations, "direct_path_source"));
 #endif
     } catch(DestinationFound&){}
-
-    try {
-#ifndef _DEBUG_DIJKSTRA_QUANTUM_
-        dijkstra(starting_edge[target_e], distance_or_target_visitor(radius, distances, destinations));
-#else
-        dijkstra(starting_edge[target_e],
-                 printer_distance_or_target_visitor(radius, distances, destinations, "direct_path_target"));
-#endif
-    } catch(DestinationFound&){}
-
 }
 
 std::vector<std::pair<type::idx_t, type::GeographicalCoord>>
-PathFinder::crow_fly_find_nearest_stop_points(const navitia::time_duration& radius,
+PathFinder::crow_fly_find_nearest_stop_points(const navitia::time_duration& max_duration,
                                               const proximitylist::ProximityList<type::idx_t>& pl) {
     // Searching for all the elements that are less than radius meters awyway in crow fly
-    
-    float crow_fly_dist = radius.total_seconds() * speed_factor * georef::default_speed[mode];
-    return pl.find_within(start_coord, crow_fly_dist);
+    float crow_fly_dist = max_duration.total_seconds() * speed_factor * georef::default_speed[mode];
+    return pl.find_within(start_coord, double(crow_fly_dist));
 }
 
 
@@ -390,15 +377,21 @@ PathFinder::start_dijkstra_and_fill_duration_map(const navitia::time_duration& r
 }
 
 routing::map_stop_point_duration
-PathFinder::find_nearest_stop_points(const navitia::time_duration& radius,
+PathFinder::find_nearest_stop_points(const navitia::time_duration& max_duration,
                                      const proximitylist::ProximityList<type::idx_t>& pl) {
-    if (radius == navitia::seconds(0)) { return {}; }
+    if (max_duration == navitia::seconds(0)) { return {}; }
 
-    auto elements = crow_fly_find_nearest_stop_points(radius, pl);
+    auto elements = crow_fly_find_nearest_stop_points(max_duration, pl);
+    if (elements.empty()) {
+        return {};
+    }
+
+    log4cplus::Logger logger = log4cplus::Logger::getInstance(LOG4CPLUS_TEXT("logger"));
 
     routing::map_stop_point_duration result;
-    if (! starting_edge.found){
-        LOG4CPLUS_DEBUG(log4cplus::Logger::getInstance("Logger"), "starting_edge not found!");
+    // case 1 : start coord is not an edge (crow fly)
+    if (! starting_edge.found) {
+        LOG4CPLUS_DEBUG(logger, "starting_edge not found!");
         // if no street network, return stop_points that are within
         // radius distance (with sqrt(2) security factor)
         // if we are not dealing with 0,0 coordinates (incorrect data), allow crow fly
@@ -411,29 +404,27 @@ PathFinder::find_nearest_stop_points(const navitia::time_duration& radius,
                         crow_fly_duration(start_coord.distance_to(element.second)) * sqrt(2);
                 // if the radius is still ok with sqrt(2) factor
                 auto sp_idx = routing::SpIdx(element.first);
-                if (duration < radius && distance_to_entry_point.count(sp_idx) == 0) {
+                if (duration < max_duration && distance_to_entry_point.count(sp_idx) == 0) {
                     result[sp_idx] = duration;
                     distance_to_entry_point[sp_idx] = duration;
                 }
             }
         }
-        return result;
     }
-
-    if (elements.empty()) {
-        return result;
-    }
-    std::vector<routing::SpIdx> dest_sp_idx;
-    for (const auto& e: elements) {
-        dest_sp_idx.push_back(routing::SpIdx{e.first});
-    }
-    ProjectionGetterByCache projection_getter{mode, geo_ref.projected_stop_points};
-    auto resp = start_dijkstra_and_fill_duration_map<routing::SpIdx,
-            routing::SpIdx,ProjectionGetterByCache>(
-            radius, dest_sp_idx, projection_getter);
-    for (const auto& r : resp) {
-        if (r.second.routing_status == RoutingStatus_e::reached) {
-            result[r.first] = r.second.time_duration;
+    // case 2 : start coord is an edge (dijkstra)
+    else {
+        std::vector<routing::SpIdx> dest_sp_idx;
+        for (const auto& e: elements) {
+            dest_sp_idx.push_back(routing::SpIdx{e.first});
+        }
+        ProjectionGetterByCache projection_getter{mode, geo_ref.projected_stop_points};
+        auto resp = start_dijkstra_and_fill_duration_map<
+                        routing::SpIdx, routing::SpIdx,ProjectionGetterByCache>(
+                            max_duration, dest_sp_idx, projection_getter);
+        for (const auto& r : resp) {
+            if (r.second.routing_status == RoutingStatus_e::reached) {
+                result[r.first] = r.second.time_duration;
+            }
         }
     }
     return result;
@@ -712,7 +703,9 @@ std::pair<navitia::time_duration, ProjectionData::Direction> PathFinder::update_
     if (distances[target[source_e]] == max || distances[target[target_e]] == max) {
         bool found = false;
         try {
-            dijkstra(starting_edge[source_e], target_all_visitor({target[source_e], target[target_e]}));
+            dijkstra(starting_edge[source_e],
+                     starting_edge[target_e],
+                     target_all_visitor({target[source_e], target[target_e]}));
         } catch(DestinationFound) { found = true; }
 
         //if no way has been found, we can stop the search
@@ -727,10 +720,6 @@ std::pair<navitia::time_duration, ProjectionData::Direction> PathFinder::update_
 
             return {max, source_e};
         }
-        try {
-            dijkstra(starting_edge[target_e], target_all_visitor({target[source_e], target[target_e]}));
-        } catch(DestinationFound) { found = true; }
-
     }
     //if we succeded in the first search, we must have found one of the other distances
     assert(distances[target[source_e]] != max && distances[target[target_e]] != max);
@@ -767,7 +756,7 @@ static edge_t get_best_edge(vertex_t u, vertex_t v, const GeoRef& georef) {
 Path create_path(const GeoRef& geo_ref,
                  const std::vector<vertex_t>& reverse_path,
                  bool add_one_elt,
-                 double speed_factor) {
+                 float speed_factor) {
     Path p;
 
     // On reparcourt tout dans le bon ordre

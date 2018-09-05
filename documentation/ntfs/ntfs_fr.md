@@ -30,12 +30,12 @@ Les données sont formatées de la manière suivante :
 # Liste des fichiers du format
 ## Fichiers spéciaux
     Ces fichiers permettent de décrire précisément d'où viennent les données dans le cas d'un référentiel agrégeant plusieurs sources de données. La notion de _contributor_ correspond à une source de données (un exploitant peut nécessiter l'utilisation de plusieurs contributeurs). La notion de _dataset_ correspond à un jeu de données provenant d'un contributeur.
-    Les autres fichiers peuvent référencer un _contributor_id_ et/ou un _dataset_id_. Dans le cas où les deux notions sont spécifiées, c'est la notion de _dataset_ qui sera prédominante.
+    Le fichier _trips.txt_ fait une référence à _dataset_id_ afin de lier une circulation à sa donnée source.
 
 Fichier | Contrainte | Commentaire
 --- | --- | ---
-contributors.txt | Optionnel | Ce fichier contient les contributeurs.
-datasets.txt | Optionnel | Ce fichier contient les sources de données d'un contributeur.
+contributors.txt | Requis | Ce fichier contient les contributeurs.
+datasets.txt | Requis | Ce fichier contient les sources de données d'un contributeur.
 
 ## Fichiers de base
 Fichier | Contrainte | Commentaire
@@ -114,7 +114,7 @@ end_date | date | Requis | Fin du calendrier de circulation
 * 1 - Circule ce jour
 
 ### calendar_dates.txt (optionnel)
-Ce fichier décrit des exceptions aux calendriers définit dans le fichier calendar.txt.
+Ce fichier décrit des exceptions aux calendriers définis dans le fichier `calendar.txt`. Pour faciliter la description de calendriers pour des circulations très ponctuelles, il est possible de définir un calendrier en n'utilisant que le fichier `calendar_dates.txt`. De ce fait, le `service_id` ne sera pas présant dans le fichier `calendar.txt`.
 
 Colonne | Type | Contrainte | Commentaire
 --- | --- | --- | ---
@@ -134,13 +134,13 @@ Colonne | Type | Contrainte | Commentaire
 comment_id | chaine | Requis | Identifiant du commentaire
 comment_type | chaine | Optionnel | (1)
 comment_label | chaine | Optionnel | Caractère de renvoi associé au commentaire. Si celui-ci n'est pas précisé, il sera généré automatiquement.
-comment_value | chaine | Requis | Texte du commentaire
+comment_name | chaine | Requis | Texte du commentaire
 comment_url | chaine | Optionnel | URL associé à la note et permettant d'avoir plus d'info, comme par exemple un lien vers la page de description du service de TAD.
 
 (1) Catégorie de commentaire afin de pouvoir les différentier à l'affichage. Les valeurs possibles sont :
 
-* Information (ou non renseigné) : indique une note d'information générale
-* OnDemandTransport : indique qu'il s'agit d'une note d'information sur le Transport à la demande. Ce type de notes doit préciser de manière succinte les conditions et le numéro de téléphone de réservation
+* information (ou non renseigné) : indique une note d'information générale
+* on_demand_transport : indique qu'il s'agit d'une note d'information sur le Transport à la demande. Ce type de note doit préciser de manière succinte les conditions et le numéro de téléphone de réservation
 
 ### comment_links.txt (optionnel)
 Ce fichier fait le lien entre un objet du référentiel (ligne, arrêt, horaire, etc.) et un commentaire afin de permettre d'associer plusieurs notes à un objet. et plusieurs objets à une note.
@@ -171,7 +171,7 @@ company_url | chaine | Optionnel | Url du site institutionnel de la société. A
 company_mail | chaine | Optionnel | Adresse mail de contact de la société
 company_phone | chaine | Optionnel | Numéro de téléphone de contact
 
-### contributors.txt (réservé)
+### contributors.txt (requis)
 Ce fichier permet d'identifier la ou les sources fournissant les données du présent jeu de données.
 
 Colonne | Type | Contrainte | Commentaire
@@ -181,7 +181,7 @@ contributor_name | chaine | Requis | Nom du contributeur
 contributor_license | chaine | Optionnel | licence d'utilisation des données du contributeur pour le référentiel
 contributor_website | chaine | Optionnel | URL du site web associé au fournisseur de données
 
-### datasets.txt (réservé)
+### datasets.txt (requis)
 Ce fichier liste des jeux de données du contributeur associé contenus dans le référentiel.
 
 Colonne | Type | Contrainte | Commentaire
@@ -407,7 +407,7 @@ block_id | chaine | Optionnel | Identifiant du prolongement de service
 company_id | chaine | Requis | Identifiant de la compagnie (lien vers le fichier company)
 physical_mode_id | chaine | Requis | Identifiant du mode physique (lien vers le fichier physical_modes)
 trip_property_id | chaine | Optionnel | Identifiant de la propriété accessibilité (lien vers le fichier trip_properties)
-dataset_id | chaine | Optionnel | Identifiant du jeu de données ayant fourni la circulation (lien vers le fichier datasets).
+dataset_id | chaine | Requis | Identifiant du jeu de données ayant fourni la circulation (lien vers le fichier datasets).
 geometry_id | chaine | Optionnel | Identifiant du tracé représentant la circulation (lien vers le fichier geometries)
 
     Pour préciser si la circulation est sur réservation (tout ou partie), il faut :

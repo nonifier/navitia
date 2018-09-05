@@ -26,12 +26,28 @@
 # IRC #navitia on freenode
 # https://groups.google.com/d/forum/navitia
 # www.navitia.io
+
 from __future__ import absolute_import, print_function, unicode_literals, division
+from enum import Enum
+import logging
+
+
+class StandsStatus(Enum):
+    unavailable = -1
+    closed = 0
+    open = 1
 
 
 class Stands(object):
 
-    def __init__(self, available_places, available_bikes):
+    def __init__(self, available_places, available_bikes, status=None):
+        if status is not None and not isinstance(status, StandsStatus):
+            logging.getLogger(__name__).error('status must be a StandsStatus enum value, '
+                                              'obtained: {}', status)
+            self.status = None
+        else:
+            self.status = status.name  # can't serialize enum value with ujson as it's a recursive struct
+
         self.available_places = available_places
         self.available_bikes = available_bikes
         self.total_stands = available_places + available_bikes

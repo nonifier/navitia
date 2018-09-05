@@ -43,7 +43,7 @@ from jormungandr.interfaces.v1.serializer import api
 from jormungandr.interfaces.v1.VehicleJourney import vehicle_journey
 from navitiacommon.parser_args_type import BooleanType
 
-from flask.ext.restful import fields
+from flask_restful import fields
 from flask.globals import g
 from datetime import datetime
 import six
@@ -96,6 +96,8 @@ class TrafficReport(ResourceUri):
                                 help="Distance range of the query. Used only if a coord is in the query")
         parser_get.add_argument("disable_geojson", type=BooleanType(), default=False,
                                 help="remove geojson from the response")
+        parser_get.add_argument("tags[]", type=six.text_type, action="append",
+                                help="If filled, will restrain the search within the given disruption tags")
         self.collection = 'traffic_reports'
         self.collections = traffic_reports
         self.get_decorators.insert(0, ManageError())
@@ -116,13 +118,12 @@ class TrafficReport(ResourceUri):
         for forbid_id in args['__temporary_forbidden_id[]']:
             args['forbidden_uris[]'].append(forbid_id)
 
+        uris = []
         if uri:
             if uri[-1] == "/":
                 uri = uri[:-1]
             uris = uri.split("/")
-            args["filter"] = self.get_filter(uris, args)
-        else:
-            args["filter"] = ""
+        args["filter"] = self.get_filter(uris, args)
 
         response = i_manager.dispatch(args, "traffic_reports", instance_name=self.region)
 

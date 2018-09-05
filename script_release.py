@@ -1,6 +1,35 @@
-
 # -*- coding: utf-8 -*-
+# Copyright (c) 2001-2018, Canal TP and/or its affiliates. All rights reserved.
+#
+# This file is part of Navitia,
+# the software to build cool stuff with public transport.
+#
+# Hope you'll enjoy and contribute to this project,
+#     powered by Canal TP (www.canaltp.fr).
+# Help us simplify mobility and open public transport:
+#     a non ending quest to the responsive locomotion way of traveling!
+#
+# LICENCE: This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program. If not, see <http://www.gnu.org/licenses/>.
+#
+# Stay tuned using
+# twitter @navitia
+# IRC #navitia on freenode
+# https://groups.google.com/d/forum/navitia
+# www.navitia.io
+from __future__ import absolute_import, print_function, division
 import os
+
 os.environ['LC_ALL'] = 'en_US'
 os.environ['GIT_PYTHON_TRACE'] = '1' #can be 0 (no trace), 1 (git commands) or full (git commands + git output)
 
@@ -30,33 +59,34 @@ class ReleaseManager:
         #we fetch latest version from remote
         self.remote_name = remote_name
 
-        print "fetching from {}...".format(remote_name)
+        print("fetching from {}...".format(remote_name))
         self.repo.remote(remote_name).fetch("--tags")
 
         #and we update dev and release branches
-        print "rebasing dev and release..."
+        print("rebasing dev and release...")
 
         #TODO quit on error
         self.git.rebase(remote_name + "/dev", "dev")
         try:
             self.git.checkout("release")
         except Exception as e:
-            print "Cannot checkout 'release':{}, creating from distant branch".format(str(e))
+            print("Cannot checkout 'release':{}, creating from distant branch".format(str(e)))
             self.git.checkout("-b", "release", remote_name + "/release")
         self.git.rebase(remote_name + "/release", "release")
 
-        print "checking that release was merged into dev..."
+        print("checking that release was merged into dev...")
         unmerged = self.git.branch("--no-merged", "dev")
         is_release_unmerged = re.search("  release(\n|$)", unmerged)
         if is_release_unmerged:
-            print is_release_unmerged.group(0)
-            print "ABORTING: {rem}/release branch was not merged in {rem}/dev".format(rem=remote_name)
-            print "  This is required before releasing. You may use (be careful):"
-            print "    git checkout dev; git submodule update"
-            print "    git merge release"
+            print(is_release_unmerged.group(0))
+            print("ABORTING: {rem}/release branch was not merged in {rem}/dev".format(rem=remote_name))
+            print("This is required before releasing. You may use (be careful):")
+            print("git checkout dev; git submodule update --recursive")
+            print("git merge release")
+
             exit(1)
 
-        print "current branch: {}".format(self.repo.active_branch)
+        print("current branch: {}".format(self.repo.active_branch))
 
         self.version = None
         self.str_version = ""
@@ -75,16 +105,16 @@ class ReleaseManager:
             latest_version = version.group(1)
 
         if not latest_version:
-            print "no latest version found"
+            print("no latest version found")
             exit(1)
 
         version_n = latest_version.split('.')
-        print "latest version is {}".format(version_n)
+        print("latest version is {}".format(version_n))
 
         self.version = [int(i) for i in version_n]
 
         self.latest_tag = get_tag_name(self.version)
-        print "last tag is " + self.latest_tag
+        print("last tag is " + self.latest_tag)
 
         if self.release_type == "major":
             self.version[0] += 1
@@ -101,7 +131,7 @@ class ReleaseManager:
                                                      min=self.version[1],
                                                      hf=self.version[2])
 
-        print "current version is {}".format(self.str_version)
+        print("current version is {}".format(self.str_version))
         return self.str_version
 
     def checkout_parent_branch(self):
@@ -112,9 +142,9 @@ class ReleaseManager:
             parent = "release"
 
         self.git.checkout(parent)
-        self.git.submodule('update')
+        self.git.submodule('update', '--recursive')
 
-        print "current branch {}".format(self.repo.active_branch)
+        print("current branch {}".format(self.repo.active_branch))
 
     def closed_pr_generator(self):
         # lazy get all closed PR ordered by last updated
@@ -124,17 +154,17 @@ class ReleaseManager:
             query = "https://api.github.com/repos/CanalTP/navitia/" \
                     "pulls?state=closed&base=dev&sort=updated&direction=desc&page={page}"\
                     .format(latest_tag=self.latest_tag, page=page)
-            print "query github api: " + query
+            print("query github api: " + query)
             github_response = requests.get(query, auth=self.auth)
 
             if github_response.status_code != 200:
                 message = github_response.json()['message']
-                print u'  * Impossible to retrieve PR\n  * ' + message
+                print(u'  * Impossible to retrieve PR\n  * ' + message)
                 return
 
             closed_pr = github_response.json()
             if not closed_pr:
-                print "Reached end of PR list"
+                print("Reached end of PR list")
                 return
 
             for pr in closed_pr:
@@ -157,8 +187,8 @@ class ReleaseManager:
                 try:
                     branches = self.git.branch('-r', '--contains', pr_head_sha) + '\n'
                 except:
-                    print "ERROR while searching for commit in release branch: " \
-                          "Following PR added to changelog, remove it if needed.\n"
+                    print("ERROR while searching for commit in release branch: " \
+                          "Following PR added to changelog, remove it if needed.\n")
 
                 # adding separators before and after to match only branch name
                 release_branch_name = '  ' + self.remote_name + '/release\n'
@@ -176,7 +206,7 @@ class ReleaseManager:
 
                     if not has_excluded_label:
                         lines.append(u'  * {title}  <{url}>\n'.format(title=title, url=url))
-                        print lines[-1]
+                        print(lines[-1])
                         nb_successive_merged_pr = 0
         return lines
 
@@ -204,7 +234,7 @@ class ReleaseManager:
         return write_lines
 
     def update_changelog(self):
-        print "updating changelog"
+        print("updating changelog")
         changelog = self.create_changelog()
 
         f_changelog = None
@@ -213,7 +243,7 @@ class ReleaseManager:
         try:
             f_changelog = codecs.open(changelog_filename, 'r', 'utf-8')
         except IOError:
-            print "Unable to open debian/changelog"
+            print("Unable to open debian/changelog")
             exit(1)
         f_changelogback = codecs.open(back_filename, "w", "utf-8")
 
@@ -229,7 +259,7 @@ class ReleaseManager:
                                             stderr=subprocess.PIPE).communicate()
         after = stat(back_filename)
         if last_modified == after:
-            print "No changes made, we stop"
+            print("No changes made, we stop")
             remove(back_filename)
             exit(2)
 
@@ -263,11 +293,11 @@ class ReleaseManager:
 
     def publish_release(self, temp_branch):
         self.git.checkout("release")
-        self.git.submodule('update')
+        self.git.submodule('update', '--recursive')
         #merge with the release branch
         self.git.merge(temp_branch, "release", '--no-ff')
 
-        print "current branch {}".format(self.repo.active_branch)
+        print("current branch {}".format(self.repo.active_branch))
         #we tag the release
         tag_message = u'Version {}\n'.format(self.str_version)
 
@@ -275,20 +305,20 @@ class ReleaseManager:
         for change in changelog:
             tag_message += change
 
-        print "tag: " + tag_message
+        print("tag: " + tag_message)
 
         self.repo.create_tag(get_tag_name(self.version), message=tag_message)
 
         #and we merge back the release branch to dev (at least for the tag in release)
         self.git.merge("release", "dev", '--no-ff')
 
-        print "publishing the release"
+        print("publishing the release")
 
-        print "Check the release, you will probably want to merge release in dev:"
-        print "  git checkout dev; git submodule update"
-        print "  git merge release"
-        print "And when you're happy do:"
-        print "  git push {} release dev --tags".format(self.remote_name)
+        print("Check the release, you will probably want to merge release in dev:")
+        print("  git checkout dev; git submodule update --recursive")
+        print("  git merge release")
+        print("And when you're happy do:")
+        print("  git push {} release dev --tags".format(self.remote_name))
         #TODO: when we'll be confident, we will do that automaticaly
 
     def release_the_kraken(self):
@@ -299,25 +329,24 @@ class ReleaseManager:
         self.checkout_parent_branch()
 
         #we then create a new temporary branch
-        print "creating temporary release branch {}".format(tmp_name)
+        print("creating temporary release branch {}".format(tmp_name))
         self.git.checkout(b=tmp_name)
-        print "current branch {}".format(self.repo.active_branch)
+        print("current branch {}".format(self.repo.active_branch))
 
         self.update_changelog()
 
         self.git.commit(m="Version %s" % self.str_version)
 
         if self.release_type == "hotfix":
-            print "now time to do your actual hotfix! (cherry-pick commits)"
-            print "PLEASE check that \"release\" COMPILES and TESTS!"
-            print "Note: you'll have to merge/tag/push manually after your fix:"
-            print "  git checkout release"
-            print "  git merge --no-ff {tmp_branch}".format(tmp_branch=tmp_name)
-            print "  git tag -a {} #then add message on Version and mention concerned PRs \n".format(get_tag_name(self.version))
-
-            print "  git checkout dev"
-            print "  git merge release"
-            print "  git push {} release dev --tags".format(self.remote_name)
+            print("now time to do your actual hotfix! (cherry-pick commits)")
+            print("PLEASE check that \"release\" COMPILES and TESTS!")
+            print("Note: you'll have to merge/tag/push manually after your fix:")
+            print("  git checkout release")
+            print("  git merge --no-ff {tmp_branch}".format(tmp_branch=tmp_name))
+            print("  git tag -a {} #then add message on Version and mention concerned PRs".format(get_tag_name(self.version)))
+            print("  git checkout dev")
+            print("  git merge release")
+            print("  git push {} release dev --tags".format(self.remote_name))
 
             #TODO2 try to script that (put 2 hotfix param, like hotfix init and hotfix publish ?)
             exit(0)
@@ -328,8 +357,8 @@ class ReleaseManager:
 if __name__ == '__main__':
 
     if len(argv) < 2:
-        print "mandatory argument: {major|minor|hotfix}"
-        print "possible additional argument: remote (default is canalTP)"
+        print("mandatory argument: {major|minor|hotfix}")
+        print("possible additional argument: remote (default is canalTP)")
         exit(5)
 
     #the git lib used bug when not in english

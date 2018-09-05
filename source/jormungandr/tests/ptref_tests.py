@@ -743,8 +743,8 @@ class TestPtRefRoutingCov(AbstractTestFixture):
         response = self.query_region('lines')
         assert 'error' not in response
         lines = get_not_null(response, 'lines')
-        assert len(lines) == 4
-        assert {"1A", "1B", "1C", "1D"} == {l['code'] for l in lines}
+        assert len(lines) == 5
+        assert {"1A", "1B", "1C", "1D", "1M"} == {l['code'] for l in lines}
 
     def test_line_filter_line_code(self):
         """test filtering lines from line code 1A in the pt call"""
@@ -771,16 +771,15 @@ class TestPtRefRoutingCov(AbstractTestFixture):
         assert 'error' in response
         assert 'bad_filter' in response['error']['id']
 
-    def test_line_filter_route_code_ignored(self):
+    def test_line_filter_route_code_invalid(self):
         """test filtering lines from route code bob in the pt call
-        as there is no attribute "code" for route, filter is invalid and ignored"""
+        as there is no attribute "code" for route, filter is invalid"""
         response_all_lines = self.query_region('lines')
         all_lines = get_not_null(response_all_lines, 'lines')
-        response = self.query_region('lines?filter=route.code=bob')
-        assert 'error' not in response
-        lines = get_not_null(response, 'lines')
-        assert len(lines) == 4
-        assert {l['code'] for l in all_lines} == {l['code'] for l in lines}
+        response, status = self.query_no_assert('v1/coverage/main_routing_test/lines?filter=route.code=bob')
+        assert status == 400
+        assert 'error' in response
+        assert 'unable_to_parse' in response['error']['id']
 
     def test_route_filter_line_code(self):
         """test filtering routes from line code 1B in the pt call"""
@@ -870,8 +869,8 @@ class TestPtRefRoutingCov(AbstractTestFixture):
         response = self.query_region('stop_points/stop_point:stopB/departures?from_datetime=20120615T000000')
         assert 'error' not in response
         departures = get_not_null(response, 'departures')
-        assert len(departures) == 2
-        assert {"A00", "vjB"} == {d['display_informations']['headsign'] for d in departures}
+        assert len(departures) == 3
+        assert {"A00", "vjM", "vjB"} == {d['display_informations']['headsign'] for d in departures}
 
     def test_headsign_display_info_arrivals(self):
         """test basic print of headsign in display informations for arrivals"""
@@ -879,7 +878,7 @@ class TestPtRefRoutingCov(AbstractTestFixture):
         assert 'error' not in response
         arrivals = get_not_null(response, 'arrivals')
         assert len(arrivals) == 2
-        assert arrivals[0]['display_informations']['headsign'] == "vehicle_journey 3"
+        assert arrivals[0]['display_informations']['headsign'] == "vehicle_journey 4"
 
     def test_headsign_display_info_route_schedules(self):
         """test basic print of headsign in display informations for route schedules"""
@@ -906,7 +905,7 @@ class TestPtRefRoutingCov(AbstractTestFixture):
         response = self.query_region('disruptions')
 
         disruptions = get_not_null(response, 'disruptions')
-        assert len(disruptions) == 9
+        assert len(disruptions) == 10
         for d in disruptions:
             is_valid_disruption(d)
 
@@ -922,19 +921,16 @@ class TestPtRefRoutingCov(AbstractTestFixture):
         disruptions_uris = set([d['uri'] for d in disruptions])
         assert {"too_bad_line_C", "too_bad_all_lines"} == disruptions_uris
 
-        # we can't access object from the disruption though (we don't think it to be useful for the moment)
+        # we can access line object from the disruption
         response, status = self.query_region('disruptions/too_bad_line_C/lines', check=False)
-        assert status == 404
-        e = get_not_null(response, 'error')
-        assert e['id'] == 'unknown_object'
-        assert e['message'] == 'ptref : Filters: Unable to find object'
+        assert status == 200
 
     def test_trips(self):
         """test the /trips api"""
         response = self.query_region('trips')
 
         trips = get_not_null(response, 'trips')
-        assert len(trips) == 6
+        assert len(trips) == 7
         for t in trips:
             is_valid_trip(t)
 

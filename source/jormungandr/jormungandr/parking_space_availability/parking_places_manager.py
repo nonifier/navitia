@@ -27,7 +27,7 @@
 # https://groups.google.com/d/forum/navitia
 # www.navitia.io
 from __future__ import absolute_import, print_function, unicode_literals, division
-from flask.ext.restful.utils import unpack
+from flask_restful.utils import unpack
 from jormungandr import i_manager, bss_provider_manager, car_park_provider_manager
 from functools import wraps
 import logging
@@ -72,7 +72,7 @@ class ManageParkingPlaces(object):
 
                 resource_args = self.resource.parsers["get"].parse_args()
 
-                show_bss_stands = resource_args.get('bss_stands') or 'bss_stands' in resource_args.get('add_poi_infos')
+                show_bss_stands = 'bss_stands' in resource_args.get('add_poi_infos')
                 show_car_park = 'car_park' in resource_args.get('add_poi_infos')
 
                 if show_bss_stands and instance and instance.bss_provider:

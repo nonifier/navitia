@@ -28,6 +28,8 @@ https://groups.google.com/d/forum/navitia
 www.navitia.io
 */
 
+#include "ed2nav.h"
+
 #include "conf.h"
 
 #include "utils/timer.h"
@@ -49,6 +51,7 @@ www.navitia.io
 namespace po = boost::program_options;
 namespace pt = boost::posix_time;
 namespace georef = navitia::georef;
+namespace ed {
 
 // A functor that first asks to GeoRef the admins of coord, and, if
 // GeoRef found nothing, asks to the cities database.
@@ -103,7 +106,7 @@ struct FindAdminWithCities {
         }
     }
 
-    result_type operator()(const navitia::type::GeographicalCoord& c) {
+    result_type operator()(const navitia::type::GeographicalCoord& c, navitia::georef::AdminRtree& admin_tree) {
         if(nb_call == 0){
             init();
         }
@@ -111,7 +114,7 @@ struct FindAdminWithCities {
 
         if (!c.is_initialized()) {++nb_uninitialized; return {};}
 
-        const auto &georef_res = georef.find_admins(c);
+        const auto &georef_res = georef.find_admins(c, admin_tree);
         if (!georef_res.empty()) {++nb_georef; return georef_res;}
 
         std::stringstream request;
@@ -157,7 +160,7 @@ struct FindAdminWithCities {
     }
 };
 
-int main(int argc, char * argv[])
+int ed2nav(int argc, const char * argv[])
 {
     navitia::init_app();
     auto logger = log4cplus::Logger::getInstance("log");
@@ -204,7 +207,7 @@ int main(int argc, char * argv[])
         }
     }
 
-    if(vm.count("help")) {
+    if(vm.count("help") || !vm.count("connection-string")) {
         std::cout << "Extracts data from a database to a file readable by kraken" << std::endl;
         std::cout << desc <<  std::endl;
         return 1;
@@ -273,3 +276,5 @@ int main(int argc, char * argv[])
 
     return 0;
 }
+
+} // namespace ed

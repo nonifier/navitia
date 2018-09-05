@@ -29,7 +29,6 @@ www.navitia.io
 */
 
 #include "raptor_api.h"
-#include "raptor.h"
 #include "georef/street_network.h"
 #include "type/type_utils.h"
 #include "type/pb_converter.h"
@@ -38,6 +37,7 @@ www.navitia.io
 #include "fare/fare.h"
 #include "isochrone.h"
 #include "heat_map.h"
+#include "utils/map_find.h"
 
 #include <boost/date_time/posix_time/posix_time.hpp>
 #include <boost/range/algorithm/count.hpp>
@@ -47,6 +47,209 @@ www.navitia.io
 
 
 namespace navitia { namespace routing {
+
+// Useful to protect raptor loop
+static const uint MAX_NB_RAPTOR_CALL = 100;
+
+bool keep_going(const uint32_t total_nb_journeys,
+                const uint32_t nb_try,
+                const bool clockwise,
+                const DateTime request_date_secs,
+                const boost::optional<uint32_t>& min_nb_journeys,
+                const boost::optional<DateTime>& timeframe_limit,
+                const uint32_t max_transfers) {
+    //we allow more call to kraken for simple request
+    const uint32_t max_raptor_call = (max_transfers == 0) ? MAX_NB_RAPTOR_CALL*10 : MAX_NB_RAPTOR_CALL;
+    if(nb_try > max_raptor_call) {
+        return false;
+    }
+
+    auto is_inside = [clockwise](DateTime lhs, DateTime rhs){
+        return clockwise ? lhs < rhs : lhs > rhs;
+    };
+
+    if (min_nb_journeys) {
+
+        auto need_more_journeys_for_min = total_nb_journeys < *min_nb_journeys;
+
+        if (timeframe_limit) {
+            // Case 1: if we don't have enough journeys,
+            // we keep searching until the end of time frame
+            return need_more_journeys_for_min || is_inside(request_date_secs, *timeframe_limit);
+        }
+
+        // Case 2: we return all min_nb_journeys journeys that raptor can find
+        return need_more_journeys_for_min;
+    }
+
+    if (timeframe_limit) {
+        // Case 3: no min_nb_journeys is given, we find all journeys inside of the time frame
+        return is_inside(request_date_secs, *timeframe_limit);
+    }
+
+    // Case 4: Neither time duration nor min_nb_journeys are given, we call only once Raptor
+    return false;
+}
+
+
+/**
+ * @brief Process timeframe_limit in raptor referential from request_datetime and timeframe_duration
+ */
+static boost::optional<DateTime> get_timeframe_limit(const DateTime request_date_secs,
+                                                     const bool clockwise,
+                                                     const boost::optional<uint32_t>& timeframe_duration)
+{
+    if (! timeframe_duration) {
+        return boost::none;
+    }
+
+    DateTime limit = 0; // cannot be negative
+    if (clockwise) {
+        limit = request_date_secs + *timeframe_duration;
+    } else if (request_date_secs > *timeframe_duration) {
+        limit = request_date_secs - *timeframe_duration;
+    }
+    return limit;
+}
+
+
+/**
+ * @brief internal function to call raptor in a loop
+ */
+static std::vector<Path>
+call_raptor(navitia::PbCreator& pb_creator,
+            RAPTOR& raptor,
+            const map_stop_point_duration& departures,
+            const map_stop_point_duration& destinations,
+            const std::vector<bt::ptime>& datetimes,
+            const type::RTLevel rt_level,
+            const navitia::time_duration& transfer_penalty,
+            const type::AccessibiliteParams& accessibilite_params,
+            const std::vector<std::string>& forbidden_uri,
+            const std::vector<std::string>& allowed_ids,
+            const bool clockwise,
+            const boost::optional<navitia::time_duration>& direct_path_duration,
+            const boost::optional<uint32_t>& min_nb_journeys,
+            const uint32_t nb_direct_path,
+            const uint32_t max_duration,
+            const uint32_t max_transfers,
+            const size_t max_extra_second_pass,
+            const double night_bus_filter_max_factor,
+            const int32_t night_bus_filter_base_factor,
+            boost::optional<uint32_t> timeframe_duration) {
+
+    log4cplus::Logger logger = log4cplus::Logger::getInstance(LOG4CPLUS_TEXT("logger"));
+    std::vector<Path> pathes;
+
+    // We loop on datetimes, but in practice there's always only one
+    // (It's a deprecated feature to provide multiple datetimes).
+    // TODO: remove the vector (and adapt protobuf of request).
+    DateTime bound = clockwise ? DateTimeUtils::inf : DateTimeUtils::min;
+
+    for(const auto & datetime : datetimes) {
+
+        // Compute start time and Bound
+        DateTime request_date_secs = to_datetime(datetime, raptor.data);
+
+        // timeframe_limit in raptor referential
+        boost::optional<DateTime> timeframe_limit = get_timeframe_limit(request_date_secs,
+                                                                        clockwise,
+                                                                        timeframe_duration);
+
+        // Compute Bound
+        if(max_duration != DateTimeUtils::inf) {
+            if (clockwise) {
+                bound = request_date_secs + max_duration;
+            } else {
+                bound = request_date_secs > max_duration ? request_date_secs - max_duration : 0;
+            }
+        }
+
+        // Raptor Loop
+        JourneySet journeys;
+        uint32_t nb_try = 0;
+        int total_nb_journeys = 0;
+
+        raptor.set_valid_jp_and_jpp(DateTimeUtils::date(request_date_secs),
+                                    accessibilite_params,
+                                    forbidden_uri, allowed_ids,
+                                    rt_level);
+
+        do {
+            auto raptor_journeys = raptor.compute_all_journeys(
+                departures, destinations, request_date_secs, rt_level, transfer_penalty, bound, max_transfers,
+                accessibilite_params, clockwise, direct_path_duration, max_extra_second_pass);
+
+            LOG4CPLUS_DEBUG(logger, "raptor found " << raptor_journeys.size() << " solutions");
+
+            // Remove direct path
+            filter_direct_path(raptor_journeys);
+
+            // filter joureys that are too late.....with the magic formula...
+            NightBusFilter::Params params {
+                request_date_secs,
+                clockwise,
+                night_bus_filter_max_factor,
+                night_bus_filter_base_factor
+            };
+            filter_late_journeys(raptor_journeys, params);
+
+            LOG4CPLUS_DEBUG(logger, "after filtering late journeys: " << raptor_journeys.size() << " solution(s) left");
+
+            if (raptor_journeys.empty()) {
+                break;
+            }
+
+            // filter the similar journeys
+            for(const auto & journey : raptor_journeys) {
+                journeys.insert(journey);
+            }
+
+            nb_try++;
+
+            total_nb_journeys = journeys.size() + nb_direct_path;
+
+            // Prepare next call for raptor with min_nb_journeys option
+            request_date_secs = prepare_next_call_for_raptor(raptor_journeys, clockwise);
+
+        } while (keep_going(total_nb_journeys,
+                            nb_try,
+                            clockwise,
+                            request_date_secs,
+                            min_nb_journeys,
+                            timeframe_limit,
+                            max_transfers));
+
+        // create date time for next
+        pb_creator.set_next_request_date_time(to_posix_timestamp(request_date_secs, raptor.data));
+
+        auto tmp_pathes = raptor.from_journeys_to_path(journeys);
+        LOG4CPLUS_DEBUG(logger, "raptor made " << tmp_pathes.size() << " Path(es)");
+
+        // For one date time
+        if(datetimes.size() == 1) {
+            pathes = tmp_pathes;
+            for(auto & path : pathes) {
+                path.request_time = datetime;
+            }
+        }
+        // when we have several date time,
+        // we keep that arrival at the earliest / departure at the latest
+        else if (!tmp_pathes.empty()) {
+
+            tmp_pathes.back().request_time = datetime;
+            pathes.push_back(tmp_pathes.back());
+            bound = to_datetime(tmp_pathes.back().items.back().arrival, raptor.data);
+        }
+        // when we have several date time and we have no result,
+        // we return an empty path
+        else {
+            pathes.push_back(Path());
+        }
+    }
+
+    return pathes;
+}
 
 static void add_coord(const type::GeographicalCoord& coord, pbnavitia::Section* pb_section) {
     auto* new_coord = pb_section->add_shape();
@@ -59,8 +262,10 @@ static void fill_shape(pbnavitia::Section* pb_section,
 {
     if (stop_times.empty()) { return; }
 
+    // Adding the coordinates of the first stop point
     type::GeographicalCoord prev_coord = stop_times.front()->stop_point->coord;
     add_coord(prev_coord, pb_section);
+
     auto prev_order = stop_times.front()->order();
     for (auto it = stop_times.begin() + 1; it != stop_times.end(); ++it) {
         const auto* st = *it;
@@ -69,21 +274,30 @@ static void fill_shape(pbnavitia::Section* pb_section,
         // As every stop times may not be present (because they can be
         // filtered because of estimated datetime), we can only print
         // the shape if the 2 stop times are consecutive
-        if (prev_order + 1 == cur_order && st-> shape_from_prev != nullptr) {
-            for (const auto& cur_coord: *st->shape_from_prev) {
-                if (cur_coord == prev_coord) { continue; }
-                add_coord(cur_coord, pb_section);
-                prev_coord = cur_coord;
+        if (prev_order + 1 == cur_order) {
+            // If the shapes exist, we use them to generate the geometry
+            if (st->shape_from_prev != nullptr) {
+                for (const auto& cur_coord: *st->shape_from_prev) {
+                    if (cur_coord == prev_coord) { continue; }
+                    add_coord(cur_coord, pb_section);
+                    prev_coord = cur_coord;
+                }
+            // otherwise, we use the stop points coordinates to draw a line
+            } else {
+                const auto& sp_coord = st->stop_point->coord;
+                if (sp_coord != prev_coord) {
+                    add_coord(sp_coord, pb_section);
+                    prev_coord = sp_coord;
+                }
             }
         }
-        // Add the coordinates of the stop point if not already added
-        // by the shape.
-        const auto& sp_coord = st->stop_point->coord;
-        if (sp_coord != prev_coord) {
-            add_coord(sp_coord, pb_section);
-            prev_coord = sp_coord;
-        }
         prev_order = cur_order;
+    }
+
+    // Adding the coordinates of the last stop point
+    const type::GeographicalCoord& last_coord = stop_times.back()->stop_point->coord;
+    if (last_coord != prev_coord) {
+        add_coord(last_coord, pb_section);
     }
 }
 
@@ -261,7 +475,7 @@ void add_direct_path(PbCreator& pb_creator,
         LOG4CPLUS_DEBUG(logger, "direct path of " << path.duration << "s found!");
 
         //for each date time we add a direct street journey
-        for(bt::ptime datetime : datetimes) {
+        for(const auto & datetime : datetimes) {
             pbnavitia::Journey* pb_journey = pb_creator.add_journeys();
             pb_journey->set_requested_date_time(navitia::to_posix_timestamp(datetime));
 
@@ -499,14 +713,33 @@ static bt::ptime handle_pt_sections(pbnavitia::Journey* pb_journey,
     return arrival_time;
 }
 
-static void add_pathes(PbCreator& pb_creator,
-                       const std::vector<navitia::routing::Path>& paths,
-                       georef::StreetNetwork& worker,
-                       const georef::Path& direct_path,
-                       const type::EntryPoint& origin,
-                       const type::EntryPoint& destination,
-                       const std::vector<bt::ptime>& datetimes,
-                       const bool clockwise) {
+static boost::optional<time_duration>
+get_duration_to_stop_point(const navitia::type::StopPoint* stop_point,
+                           const navitia::georef::PathFinder & path_finder)
+{
+    boost::optional<time_duration> duration_to_entry_pt;
+    const auto sp_idx = SpIdx(*stop_point);
+
+    utils::make_map_find(path_finder.distance_to_entry_point, sp_idx)
+        .if_found([&](const time_duration& duration){
+            duration_to_entry_pt = boost::make_optional(duration);
+        });
+
+    return duration_to_entry_pt;
+}
+
+void make_pathes(PbCreator& pb_creator,
+                 const std::vector<navitia::routing::Path>& paths,
+                 georef::StreetNetwork& worker,
+                 const georef::Path& direct_path,
+                 const type::EntryPoint& origin,
+                 const type::EntryPoint& destination,
+                 const std::vector<bt::ptime>& datetimes,
+                 const bool clockwise,
+                 const uint32_t free_radius_from,
+                 const uint32_t free_radius_to) {
+
+    pb_creator.set_response_type(pbnavitia::ITINERARY_FOUND);
 
     log4cplus::Logger logger = log4cplus::Logger::getInstance(LOG4CPLUS_TEXT("logger"));
 
@@ -548,17 +781,28 @@ static void add_pathes(PbCreator& pb_creator,
             const auto& departure_stop_point = path.items.front().stop_points.front();
             georef::Path sn_departure_path = worker.get_path(departure_stop_point->idx);
 
+            auto duration_to_departure = get_duration_to_stop_point(
+                                            departure_stop_point, worker.departure_path_finder);
+
             if (is_same_stop_point(origin, *departure_stop_point)) {
                 // nothing in this case
-            } else if (use_crow_fly(origin, *departure_stop_point, sn_departure_path, *pb_creator.data)){
+            } else if (use_crow_fly(origin,
+                                    *departure_stop_point,
+                                    sn_departure_path,
+                                    *pb_creator.data,
+                                    free_radius_from,
+                                    duration_to_departure))
+            {
                 type::EntryPoint destination_tmp(type::Type_e::StopPoint, departure_stop_point->uri);
                 destination_tmp.coordinates = departure_stop_point->coord;
                 pb_creator.action_period = bt::time_period (path.items.front().departures.front(),
                                               path.items.front().departures.front() + bt::seconds(1));
-                const time_duration& crow_fly_duration = find_or_default(SpIdx(*departure_stop_point),
-                                            worker.departure_path_finder.distance_to_entry_point);
-                auto departure_time = path.items.front().departures.front() - pt::seconds(crow_fly_duration.to_posix().total_seconds());
-                pb_creator.fill_crowfly_section(origin, destination_tmp, crow_fly_duration,
+                time_duration crow_fly_duration = duration_to_departure ? *duration_to_departure : time_duration() ;
+                auto seconds_to_departure = pt::seconds(crow_fly_duration.to_posix().total_seconds());
+                auto departure_time = path.items.front().departures.front() - seconds_to_departure;
+                pb_creator.fill_crowfly_section(origin,
+                                                destination_tmp,
+                                                crow_fly_duration,
                                                 worker.departure_path_finder.mode,
                                                 departure_time,
                                                 pb_journey);
@@ -613,19 +857,30 @@ static void add_pathes(PbCreator& pb_creator,
             const auto arrival_stop_point = path.items.back().stop_points.back();
             georef::Path sn_arrival_path = worker.get_path(arrival_stop_point->idx, true);
 
+            auto duration_to_arrival = get_duration_to_stop_point(
+                                            arrival_stop_point, worker.arrival_path_finder);
+
             if (is_same_stop_point(destination, *arrival_stop_point)) {
                 // nothing in this case
-            } else if (use_crow_fly(destination, *arrival_stop_point, sn_arrival_path, *pb_creator.data)) {
+            } else if (use_crow_fly(destination,
+                                    *arrival_stop_point,
+                                    sn_arrival_path,
+                                    *pb_creator.data,
+                                    free_radius_to,
+                                    duration_to_arrival)) {
+
                 type::EntryPoint origin_tmp(type::Type_e::StopPoint, arrival_stop_point->uri);
                 auto dt = path.items.back().arrivals.back();
                 origin_tmp.coordinates = arrival_stop_point->coord;
                 pb_creator.action_period = bt::time_period(dt, bt::seconds(1));
-                const time_duration& crow_fly_duration = find_or_default(SpIdx(*arrival_stop_point),
-                                                worker.arrival_path_finder.distance_to_entry_point);
+                time_duration crow_fly_duration = duration_to_arrival ? *duration_to_arrival : time_duration();
                 arrival_time = arrival_time + pt::seconds(crow_fly_duration.to_posix().total_seconds());
-                pb_creator.fill_crowfly_section(origin_tmp, destination, crow_fly_duration,
+                pb_creator.fill_crowfly_section(origin_tmp,
+                                                destination,
+                                                crow_fly_duration,
                                                 worker.arrival_path_finder.mode,
-                                                dt, pb_journey);
+                                                dt,
+                                                pb_journey);
             }
             // for stop areas, we don't want to display the fallback section if start
             // from one of the stop area's stop point
@@ -669,20 +924,6 @@ static void add_pathes(PbCreator& pb_creator,
     }
 
     add_direct_path(pb_creator, direct_path, origin, destination, datetimes, clockwise);
-}
-
-static void make_pathes(PbCreator& pb_creator,
-                        const std::vector<navitia::routing::Path>& paths,
-                        georef::StreetNetwork& worker,
-                        const georef::Path& direct_path,
-                        const type::EntryPoint& origin,
-                        const type::EntryPoint& destination,
-                        const std::vector<bt::ptime>& datetimes,
-                        const bool clockwise) {
-
-    pb_creator.set_response_type(pbnavitia::ITINERARY_FOUND);
-    add_pathes(pb_creator, paths, worker, direct_path,
-               origin, destination, datetimes, clockwise);
 }
 
 
@@ -813,125 +1054,148 @@ std::vector<georef::Admin*> find_admins(const type::EntryPoint& ep, const type::
     return data.geo_ref->find_admins(ep.coordinates);
 }
 
+static void add_free_stop_point(const type::StopPoint* stop_point,
+                                georef::PathFinder& pf,
+                                routing::map_stop_point_duration& results)
+{
+    const SpIdx sp_idx{*stop_point};
+    utils::make_map_find(results, sp_idx)
+        .if_not_found([&](){
+            pf.distance_to_entry_point[sp_idx] = {};
+            results[sp_idx] = {};
+        });
+}
+
 boost::optional<routing::map_stop_point_duration>
-get_stop_points( const type::EntryPoint &ep, const type::Data& data,
-        georef::StreetNetwork & worker, bool use_second){
+get_stop_points(const type::EntryPoint &ep,
+                const type::Data& data,
+                georef::StreetNetwork & worker,
+                const uint32_t free_radius,
+                bool use_second) {
+
     routing::map_stop_point_duration result;
     georef::PathFinder& concerned_path_finder = use_second ? worker.arrival_path_finder :
-                                                            worker.departure_path_finder;
+                                                             worker.departure_path_finder;
     log4cplus::Logger logger = log4cplus::Logger::getInstance(LOG4CPLUS_TEXT("logger"));
     LOG4CPLUS_TRACE(logger, "Searching nearest stop_point's from entry point : [" << ep.coordinates.lat()
               << "," << ep.coordinates.lon() << "]");
-    if (ep.type == type::Type_e::Address
-                || ep.type == type::Type_e::Coord
-                || ep.type == type::Type_e::StopArea
-                || ep.type == type::Type_e::StopPoint
-                || ep.type == type::Type_e::POI) {
 
-        if (ep.type == type::Type_e::StopArea) {
-            auto it = data.pt_data->stop_areas_map.find(ep.uri);
-            if (it!= data.pt_data->stop_areas_map.end()) {
-                for (auto stop_point : it->second->stop_point_list) {
-                    const SpIdx sp_idx{*stop_point};
-                    if (result.find(sp_idx) == result.end()) {
-                        concerned_path_finder.distance_to_entry_point[sp_idx] = {};
-                        result[sp_idx] = {};
+    switch(ep.type) {
+        case type::Type_e::StopArea : {
+            utils::make_map_find(data.pt_data->stop_areas_map, ep.uri)
+                .if_found([&](const type::StopArea* sa){
+                    for (auto stop_point : sa->stop_point_list) {
+                        add_free_stop_point(stop_point, concerned_path_finder, result);
                     }
-                }
+                });
+            break;
+        }
+        case type::Type_e::StopPoint : {
+            utils::make_map_find(data.pt_data->stop_points_map, ep.uri)
+                .if_found([&](const type::StopPoint* stop_point) {
+                    add_free_stop_point(stop_point, concerned_path_finder, result);
+                });
+            break;
+        }
+        case type::Type_e::Admin : {
+            // For an admin, we want to leave from it's main stop areas if we have some,
+            // else we'll leave from the center of the admin
+            auto it_admin = data.geo_ref->admin_map.find(ep.uri);
+            if (it_admin == data.geo_ref->admin_map.end()) {
+                LOG4CPLUS_WARN(logger, "impossible to find admin " << ep.uri);
+                return result;
             }
-        }
+            const auto admin = data.geo_ref->admins[it_admin->second];
 
-        if (ep.type == type::Type_e::StopPoint) {
-            auto it = data.pt_data->stop_points_map.find(ep.uri);
-            if (it != data.pt_data->stop_points_map.end()){
-                const SpIdx sp_idx{*it->second};
-                concerned_path_finder.distance_to_entry_point[sp_idx] = {};
-                result[sp_idx] = {};
-            }
-        }
-
-        // TODO ODT NTFSv0.3: remove that when we stop to support NTFSv0.1
-        //we need to check if the admin has zone odt
-        const auto& admins = find_admins(ep, data);
-        for (const auto* admin: admins) {
-            for (const auto* odt_admin_stop_point: admin->odt_stop_points) {
-                const SpIdx sp_idx{*odt_admin_stop_point};
-                if (result.find(sp_idx) == result.end()) {
-                    concerned_path_finder.distance_to_entry_point[sp_idx] = {};
-                    result[sp_idx] = {};
-                }
-            }
-        }
-
-        // checking for zonal stop points
-        const auto& zonal_sps = data.pt_data->stop_points_by_area.find(ep.coordinates);
-        for (const auto* sp: zonal_sps) {
-            const SpIdx sp_idx{*sp};
-            if (result.find(sp_idx) == result.end()) {
-                concerned_path_finder.distance_to_entry_point[sp_idx] = {};
-                result[sp_idx] = {};
-            }
-        }
-
-        auto tmp_sn = worker.find_nearest_stop_points(
-                    ep.streetnetwork_params.max_duration,
-                    data.pt_data->stop_point_proximity_list,
-                    use_second);
-        LOG4CPLUS_TRACE(logger, "find " << tmp_sn.size() << " stop_points");
-        for(auto idx_duration : tmp_sn) {
-            const SpIdx sp_idx{idx_duration.first};
-            if(result.find(sp_idx) == result.end()) {
-                result[sp_idx] = idx_duration.second;
-            }
-        }
-    } else if(ep.type == type::Type_e::Admin) {
-        //for an admin, we want to leave from it's main stop areas if we have some, else we'll leave from the center of the admin
-        auto it_admin = data.geo_ref->admin_map.find(ep.uri);
-        if (it_admin == data.geo_ref->admin_map.end()) {
-            LOG4CPLUS_WARN(logger, "impossible to find admin " << ep.uri);
-            return result;
-        }
-        const auto admin = data.geo_ref->admins[it_admin->second];
-
-        // checking for zonal stop points
-        const auto& zonal_sps = data.pt_data->stop_points_by_area.find(ep.coordinates);
-        for (const auto* sp: zonal_sps) {
-            const SpIdx sp_idx{*sp};
-            if (result.find(sp_idx) == result.end()) {
-                concerned_path_finder.distance_to_entry_point[sp_idx] = {};
-                result[sp_idx] = {};
-            }
-        }
-
-        if (! admin->main_stop_areas.empty()) {
             for (auto stop_area: admin->main_stop_areas) {
-                for(auto sp : stop_area->stop_point_list) {
-                    const SpIdx sp_idx{*sp};
-                    if (result.find(sp_idx) == result.end()) {
-                        result[sp_idx] = {};
-                        concerned_path_finder.distance_to_entry_point[sp_idx] = {};
-                   }
+                for(auto stop_point : stop_area->stop_point_list) {
+                    add_free_stop_point(stop_point, concerned_path_finder, result);
                 }
             }
+            break;
         }
-
-        //we add the center of the admin, and look for the stop points around
-        auto nearest = worker.find_nearest_stop_points(
-                    ep.streetnetwork_params.max_duration,
-                    data.pt_data->stop_point_proximity_list,
-                    use_second);
-        for (const auto& elt: nearest) {
-            const SpIdx sp_idx{elt.first};
-            if(result.find(sp_idx) == result.end()) {
-                result[sp_idx] = elt.second;
-            }
-        }
-        LOG4CPLUS_DEBUG(logger, result.size() << " sp found for admin");
-    } else {
-        return boost::none;
+        case type::Type_e::Address :
+        case type::Type_e::Coord :
+        case type::Type_e::POI :
+            break;
+        default :
+            return boost:: none;
     }
 
+    // TODO ODT NTFSv0.3: remove that when we stop to support NTFSv0.1
+    //we need to check if the admin has zone odt
+    const auto& admins = find_admins(ep, data);
+    for (const auto* admin: admins) {
+        for (const auto* odt_admin_stop_point: admin->odt_stop_points) {
+            add_free_stop_point(odt_admin_stop_point, concerned_path_finder, result);
+        }
+    }
+
+    // checking for zonal stop points
+    const auto& zonal_sps = data.pt_data->stop_points_by_area.find(ep.coordinates);
+    for (const auto* stop_point: zonal_sps) {
+        add_free_stop_point(stop_point, concerned_path_finder, result);
+    }
+
+    // Filtering with free radius (free_radius in meters)
+    // We set the SP time duration to 0, if SP are inside
+    free_radius_filter(result, concerned_path_finder, ep, data, free_radius);
+
+    // We add the center of the admin, and look for the stop points around
+    auto nearest = worker.find_nearest_stop_points(
+                   ep.streetnetwork_params.max_duration,
+                   data.pt_data->stop_point_proximity_list,
+                   use_second);
+    for (const auto& elt: nearest) {
+        const SpIdx sp_idx{elt.first};
+        if(result.find(sp_idx) == result.end()) {
+            result[sp_idx] = elt.second;
+        }
+    }
+    LOG4CPLUS_DEBUG(logger, result.size() << " sp found for admin");
+
     return result;
+}
+
+void free_radius_filter(routing::map_stop_point_duration& sp_list,
+                        georef::PathFinder& path_finder,
+                        const type::EntryPoint& ep,
+                        const type::Data& data,
+                        const  uint32_t free_radius)
+{
+    if (free_radius > 0) {
+
+        auto logger = log4cplus::Logger::getInstance(LOG4CPLUS_TEXT("logger"));
+
+        // Find stop point list with a free radius constraint
+        LOG4CPLUS_DEBUG(logger, "filtering with free radius (" << free_radius << " meters)");
+        auto excluded_elements = data.pt_data->stop_point_proximity_list.find_within(ep.coordinates, free_radius);
+        LOG4CPLUS_DEBUG(logger, "find " << excluded_elements.size() << " stop points in free radius");
+
+        // For each excluded stop point
+        for (const auto& excluded_sp: excluded_elements) {
+            const SpIdx sp_idx{excluded_sp.first};
+            sp_list[sp_idx] = {};
+            path_finder.distance_to_entry_point[sp_idx] = {};
+            LOG4CPLUS_TRACE(logger, "free radius, sp idx : " << sp_idx << " , duration is set to 0");
+        }
+    }
+}
+
+DateTime prepare_next_call_for_raptor(const RAPTOR::Journeys& journeys, const bool clockwise)
+{
+    DateTime lastest_arrival    = DateTimeUtils::min;
+    DateTime earliest_departure = DateTimeUtils::inf; // clockwise
+
+    for (const auto & journey : journeys) {
+            earliest_departure = std::min(earliest_departure, journey.departure_dt);
+            lastest_arrival = std::max(lastest_arrival, journey.arrival_dt);
+    }
+
+    earliest_departure += 1;
+    lastest_arrival -= 1;
+
+    return clockwise ? earliest_departure : lastest_arrival;
 }
 
 static std::vector<bt::ptime>
@@ -941,7 +1205,7 @@ parse_datetimes(RAPTOR& raptor,
                 bool clockwise) {
     std::vector<bt::ptime> datetimes;
 
-    for(uint32_t datetime: timestamps){
+    for(uint64_t datetime: timestamps){
         bt::ptime ptime = bt::from_time_t(datetime);
         if(!raptor.data.meta->production_date.contains(ptime.date())) {
             pb_creator.fill_pb_error(pbnavitia::Error::date_out_of_bounds,
@@ -964,24 +1228,30 @@ void make_pt_response(navitia::PbCreator& pb_creator,
                       const std::vector<type::EntryPoint> &origins,
                       const std::vector<type::EntryPoint> &destinations,
                       const uint64_t timestamp,
-                      bool clockwise,
+                      const bool clockwise,
                       const type::AccessibiliteParams& accessibilite_params,
                       const std::vector<std::string>& forbidden,
                       const std::vector<std::string>& allowed,
                       const type::RTLevel rt_level,
                       const navitia::time_duration& transfer_penalty,
-                      uint32_t max_duration,
-                      uint32_t max_transfers,
-                      uint32_t max_extra_second_pass,
-                      const boost::optional<navitia::time_duration>& direct_path_duration){
+                      const uint32_t max_duration,
+                      const uint32_t max_transfers,
+                      const uint32_t max_extra_second_pass,
+                      const boost::optional<navitia::time_duration>& direct_path_duration,
+                      const boost::optional<uint32_t>& min_nb_journeys,
+                      const double night_bus_filter_max_factor,
+                      const int32_t night_bus_filter_base_factor,
+                      const boost::optional<DateTime>& timeframe_duration) {
+
     log4cplus::Logger logger = log4cplus::Logger::getInstance(LOG4CPLUS_TEXT("logger"));
-    std::vector<bt::ptime> datetimes;
-    datetimes = parse_datetimes(raptor, {timestamp}, pb_creator, clockwise);
+
+    // Create datetime
+    auto datetimes = parse_datetimes(raptor, {timestamp}, pb_creator, clockwise);
     if(pb_creator.has_error() || pb_creator.has_response_type(pbnavitia::DATE_OUT_OF_BOUNDS)) {
         return;
     }
-    auto datetime = datetimes.front();
 
+    // Get stop points for departure and destination
     routing::map_stop_point_duration departures;
     routing::map_stop_point_duration arrivals;
 
@@ -1004,35 +1274,102 @@ void make_pt_response(navitia::PbCreator& pb_creator,
         }
     }
 
-    DateTime bound = clockwise ? DateTimeUtils::inf : DateTimeUtils::min;
-    int day = (datetime.date() - raptor.data.meta->production_date.begin()).days();
-    int time = datetime.time_of_day().total_seconds();
-    DateTime init_dt = DateTimeUtils::set(day, time);
+    // Call Raptor loop
+    const auto pathes = call_raptor(pb_creator,
+                                    raptor,
+                                    departures,
+                                    arrivals,
+                                    datetimes,
+                                    rt_level,
+                                    transfer_penalty,
+                                    accessibilite_params,
+                                    forbidden,
+                                    allowed,
+                                    clockwise,
+                                    direct_path_duration,
+                                    min_nb_journeys,
+                                    // nb_direct_path = 0 for distributed if direct_path_duration is none
+                                    direct_path_duration ? 1: 0,
+                                    max_duration,
+                                    max_transfers,
+                                    max_extra_second_pass,
+                                    night_bus_filter_max_factor,
+                                    night_bus_filter_base_factor,
+                                    timeframe_duration);
 
-    if(max_duration != std::numeric_limits<uint32_t>::max()) {
-        if (clockwise) {
-            bound = init_dt + max_duration;
-        } else {
-            bound = init_dt > max_duration ? init_dt - max_duration : 0;
-        }
-    }
-    std::vector<Path> pathes = raptor.compute_all(
-            departures, arrivals, init_dt, rt_level, transfer_penalty, bound, max_transfers,
-            accessibilite_params, forbidden, allowed, clockwise, direct_path_duration,
-            max_extra_second_pass);
-
-    for(auto & path : pathes) {
-        path.request_time = datetime;
-    }
-    LOG4CPLUS_DEBUG(logger, "raptor found " << pathes.size() << " solutions");
-    if(clockwise){
-        std::reverse(pathes.begin(), pathes.end());
-    }
+    // Create pb response
     make_pt_pathes(pb_creator, pathes);
+
+    // Add error field
     if (pb_creator.empty_journeys()) {
-            pb_creator.fill_pb_error(pbnavitia::Error::no_solution,
-                                     pbnavitia::NO_SOLUTION,
-                                     "no solution found for this journey");
+        pb_creator.fill_pb_error(pbnavitia::Error::no_solution,
+                                    pbnavitia::NO_SOLUTION,
+                                    "no solution found for this journey");
+    }
+}
+
+void filter_direct_path(RAPTOR::Journeys& journeys)
+{
+    journeys.remove_if([](const Journey& j){return !j.is_pt();});
+}
+
+/**
+    Check if a journey is way later than another journey
+
+    Then, we check for each journey the difference between the
+    requested datetime and the arrival datetime (the other way around
+    for non clockwise)
+
+    requested dt
+    *
+                    |=============>
+                          journey2
+
+                                            |=============>
+                                                 journey1
+
+    |-----------------------------|
+       journey2 pseudo duration
+
+    |------------------------------------------------------|
+            journey1 pseudo duration
+ */
+bool is_way_later(const Journey & j1, const Journey & j2,
+               const NightBusFilter::Params & params)
+{
+    auto & requested_dt = params.requested_datetime;
+    auto & clockwise = params.clockwise;
+
+    auto get_pseudo_duration = [&](const Journey & j) {
+        auto dt = clockwise ? j.arrival_dt : j.departure_dt;
+        return std::abs(double(dt) - double(requested_dt));
+    };
+
+    auto j1_pseudo_duration = get_pseudo_duration(j1);
+    auto j2_pseudo_duration = get_pseudo_duration(j2);
+
+    auto max_pseudo_duration = j2_pseudo_duration * params.max_factor + params.base_factor;
+
+    return j1_pseudo_duration > max_pseudo_duration;
+}
+
+void filter_late_journeys(RAPTOR::Journeys & journeys,
+                          const NightBusFilter::Params & params)
+{
+    if(journeys.size() == 0)
+        return;
+
+    const auto & best = get_best_journey(journeys, params.clockwise);
+
+    auto it = journeys.begin();
+    while(it != journeys.end()) {
+        const auto & journey = *it;
+        if(best != journey && is_way_later(journey, best, params)) {
+            it = journeys.erase(it);
+            continue;
+        }
+
+        ++it;
     }
 }
 
@@ -1041,22 +1378,27 @@ void make_response(navitia::PbCreator& pb_creator,
                    const type::EntryPoint& origin,
                    const type::EntryPoint& destination,
                    const std::vector<uint64_t>& timestamps,
-                   bool clockwise,
+                   const bool clockwise,
                    const type::AccessibiliteParams& accessibilite_params,
-                   std::vector<std::string> forbidden,
-                   std::vector<std::string> allowed,
+                   const std::vector<std::string>& forbidden,
+                   const std::vector<std::string>& allowed,
                    georef::StreetNetwork& worker,
                    const type::RTLevel rt_level,
                    const navitia::time_duration& transfer_penalty,
-                   uint32_t max_duration,
-                   uint32_t max_transfers,
-                   uint32_t max_extra_second_pass) {
+                   const uint32_t max_duration,
+                   const uint32_t max_transfers,
+                   const uint32_t max_extra_second_pass,
+                   const uint32_t free_radius_from,
+                   const uint32_t free_radius_to,
+                   const boost::optional<uint32_t>& min_nb_journeys,
+                   const double night_bus_filter_max_factor,
+                   const int32_t night_bus_filter_base_factor,
+                   const boost::optional<uint32_t>& timeframe_duration) {
 
     log4cplus::Logger logger = log4cplus::Logger::getInstance(LOG4CPLUS_TEXT("logger"));
-    std::vector<Path> pathes;
 
-    std::vector<bt::ptime> datetimes;
-    datetimes = parse_datetimes(raptor, timestamps, pb_creator, clockwise);
+    // Create datetime
+    auto datetimes = parse_datetimes(raptor, timestamps, pb_creator, clockwise);
     if(pb_creator.has_error() || pb_creator.has_response_type(pbnavitia::DATE_OUT_OF_BOUNDS)) {
         return;
     }
@@ -1065,125 +1407,106 @@ void make_response(navitia::PbCreator& pb_creator,
     worker.init(origin, {destination});
 
     // Get stop points for departure and destination
-    auto departures = get_stop_points(origin, raptor.data, worker);
-    auto destinations = get_stop_points(destination, raptor.data, worker, true);
+    const auto departures = get_stop_points(origin, raptor.data, worker, free_radius_from);
+    const auto destinations = get_stop_points(destination, raptor.data, worker, free_radius_to, true);
 
     // case 1 : departure no exist
-    if (!departures){
+    if (!departures) {
         pb_creator.fill_pb_error(pbnavitia::Error::unknown_object,
                                  "The entry point: " + origin.uri + " is not valid");
+        return;
     }
+
     // case 2 : destination no exist
-    else if (!destinations){
+    if (!destinations) {
         pb_creator.fill_pb_error(pbnavitia::Error::unknown_object,
                                  "The entry point: " + destination.uri + " is not valid");
+        return;
     }
-    // case 3 : departure and destination is emtpy
-    else if (departures && (departures->size() == 0) && destinations && (destinations->size() == 0)){
+
+    // case 3 : departure or destination are emtpy
+    if (departures->size() == 0 ||
+        destinations->size() == 0) {
         make_pathes(pb_creator,
-                    pathes,
+                    std::vector<Path>(),
                     worker,
                     get_direct_path(worker, origin, destination),
                     origin,
                     destination,
                     datetimes,
                     clockwise);
-        if (pb_creator.empty_journeys()) {
-            pb_creator.fill_pb_error(pbnavitia::Error::no_origin_nor_destination,
-                                     pbnavitia::NO_ORIGIN_NOR_DESTINATION_POINT,
-                                     "no origin point nor destination point");
-        }
-    }
-    // case 4 : only departure is emtpy
-    else if (departures && departures->size() == 0){
-        make_pathes(pb_creator,
-                    pathes,
-                    worker,
-                    get_direct_path(worker, origin, destination),
-                    origin,
-                    destination,
-                    datetimes,
-                    clockwise);
-        if (pb_creator.empty_journeys()) {
-            pb_creator.fill_pb_error(pbnavitia::Error::no_origin,
-                                     pbnavitia::NO_ORIGIN_POINT, "no origin point");
-        }
-    }
-    // case 5 : only destination is emtpy
-    else if (destinations && destinations->size() == 0){
-        make_pathes(pb_creator,
-                    pathes,
-                    worker,
-                    get_direct_path(worker, origin, destination),
-                    origin,
-                    destination,
-                    datetimes,
-                    clockwise);
-        if (pb_creator.empty_journeys()) {
-            pb_creator.fill_pb_error(pbnavitia::Error::no_destination,
-                                     pbnavitia::NO_DESTINATION_POINT,
-                                     "no destination point");
-        }
-    }
-    // classical case : We have departures and destinations
-    else {
 
-        DateTime bound = clockwise ? DateTimeUtils::inf : DateTimeUtils::min;
-        typedef boost::optional<navitia::time_duration> OptTimeDur;
-        const auto direct_path = get_direct_path(worker, origin, destination);
-        const OptTimeDur direct_path_dur = direct_path.path_items.empty() ?
-            OptTimeDur() :
-            OptTimeDur(direct_path.duration / origin.streetnetwork_params.speed_factor);
-
-        for(bt::ptime datetime : datetimes) {
-            int day = (datetime.date() - raptor.data.meta->production_date.begin()).days();
-            int time = datetime.time_of_day().total_seconds();
-            DateTime init_dt = DateTimeUtils::set(day, time);
-
-            if(max_duration != std::numeric_limits<uint32_t>::max()) {
-                if (clockwise) {
-                    bound = init_dt + max_duration;
-                } else {
-                    bound = init_dt > max_duration ? init_dt - max_duration : 0;
-                }
+        if (pb_creator.empty_journeys()) {
+            if (departures->size() == 0 &&
+                destinations->size() == 0) {
+                pb_creator.fill_pb_error(pbnavitia::Error::no_origin_nor_destination,
+                                         pbnavitia::NO_ORIGIN_NOR_DESTINATION_POINT,
+                                         "no origin point nor destination point");
             }
-            std::vector<Path> tmp = raptor.compute_all(
-                *departures, *destinations, init_dt, rt_level, transfer_penalty, bound, max_transfers,
-                accessibilite_params, forbidden, allowed, clockwise, direct_path_dur,
-                max_extra_second_pass);
-            LOG4CPLUS_DEBUG(logger, "raptor found " << tmp.size() << " solutions");
-
-
-            // Lorsqu'on demande qu'un seul horaire, on garde tous les résultas
-            if(datetimes.size() == 1) {
-                pathes = tmp;
-                for(auto & path : pathes) {
-                    path.request_time = datetime;
-                }
-            } else if(!tmp.empty()) {
-                // Lorsqu'on demande plusieurs horaires, on garde que l'arrivée au plus tôt / départ au plus tard
-                tmp.back().request_time = datetime;
-                pathes.push_back(tmp.back());
-                bound = to_datetime(tmp.back().items.back().arrival, raptor.data);
-            } else // Lorsqu'on demande plusieurs horaires, et qu'il n'y a pas de résultat, on retourne un itinéraire vide
-                pathes.push_back(Path());
+            else if (departures->size() == 0) {
+                pb_creator.fill_pb_error(pbnavitia::Error::no_origin,
+                                         pbnavitia::NO_ORIGIN_POINT,
+                                         "no origin point");
+            }
+            else if (destinations->size() == 0) {
+                pb_creator.fill_pb_error(pbnavitia::Error::no_destination,
+                                         pbnavitia::NO_DESTINATION_POINT,
+                                         "no destination point");
+            }
         }
-        if(clockwise)
-            std::reverse(pathes.begin(), pathes.end());
+        return;
+    }
 
-        make_pathes(pb_creator,
-                    pathes,
-                    worker,
-                    direct_path,
-                    origin,
-                    destination,
-                    datetimes,
-                    clockwise);
-        if (pb_creator.empty_journeys()) {
-            pb_creator.fill_pb_error(pbnavitia::Error::no_solution,
-                                     pbnavitia::NO_SOLUTION,
-                                     "no solution found for this journey");
-        }
+    // classical case : We have departures and destinations
+
+    // Compute direct path
+    typedef boost::optional<navitia::time_duration> OptTimeDur;
+    const auto direct_path = get_direct_path(worker, origin, destination);
+    const OptTimeDur direct_path_dur = direct_path.path_items.empty() ?
+        OptTimeDur() :
+        OptTimeDur(direct_path.duration / origin.streetnetwork_params.speed_factor);
+    const uint32_t nb_direct_path = direct_path.path_items.empty() ? 0 : 1;
+
+    // Call Raptor loop
+    const auto pathes = call_raptor(pb_creator,
+                                    raptor,
+                                    *departures,
+                                    *destinations,
+                                    datetimes,
+                                    rt_level,
+                                    transfer_penalty,
+                                    accessibilite_params,
+                                    forbidden,
+                                    allowed,
+                                    clockwise,
+                                    direct_path_dur,
+                                    min_nb_journeys,
+                                    nb_direct_path,
+                                    max_duration,
+                                    max_transfers,
+                                    max_extra_second_pass,
+                                    night_bus_filter_max_factor,
+                                    night_bus_filter_base_factor,
+                                    timeframe_duration);
+
+
+    // Create pb response
+    make_pathes(pb_creator,
+                pathes,
+                worker,
+                direct_path,
+                origin,
+                destination,
+                datetimes,
+                clockwise,
+                free_radius_from,
+                free_radius_to);
+
+    // Add error field
+    if (pb_creator.empty_journeys()) {
+        pb_creator.fill_pb_error(pbnavitia::Error::no_solution,
+                                    pbnavitia::NO_SOLUTION,
+                                    "no solution found for this journey");
     }
 }
 
@@ -1199,13 +1522,12 @@ void make_isochrone(navitia::PbCreator& pb_creator,
                     const type::RTLevel rt_level,
                     int max_duration, uint32_t max_transfers) {
 
-    bt::ptime datetime;
     auto tmp_datetime = parse_datetimes(raptor, {datetime_timestamp}, pb_creator, clockwise);
     if(pb_creator.has_error() || tmp_datetime.size() == 0 ||
             pb_creator.has_response_type(pbnavitia::DATE_OUT_OF_BOUNDS)) {
         return;
     }
-    datetime = tmp_datetime.front();
+    auto datetime = tmp_datetime.front();
     worker.init(origin);
     auto departures = get_stop_points(origin, raptor.data, worker);
     if (!departures) {
@@ -1325,13 +1647,13 @@ static bool fill_isochrone_common(IsochroneCommon& isochrone_common,
                                   const nt::RTLevel rt_level,
                                   georef::StreetNetwork & worker,
                                   PbCreator& pb_creator) {
-    bt::ptime datetime;
+
     auto tmp_datetime = parse_datetimes(raptor, {departure_datetime}, pb_creator, clockwise);
     if(pb_creator.has_error() || tmp_datetime.size() == 0 ||
             pb_creator.has_response_type(pbnavitia::DATE_OUT_OF_BOUNDS)) {
         return true;
     }
-    datetime = tmp_datetime.front();
+    auto datetime = tmp_datetime.front();
     worker.init(center);
     auto departures = get_stop_points(center, raptor.data, worker);
     if (!departures) {
@@ -1342,9 +1664,8 @@ static bool fill_isochrone_common(IsochroneCommon& isochrone_common,
                                  "no origin point nor destination point");
         return true;
     }
-    int day = (datetime.date() - raptor.data.meta->production_date.begin()).days();
-    int time = datetime.time_of_day().total_seconds();
-    DateTime init_dt = DateTimeUtils::set(day, time);
+
+    DateTime init_dt = to_datetime(datetime, raptor.data);
     DateTime bound = build_bound(clockwise, max_duration, init_dt);
     raptor.isochrone(*departures, init_dt, bound, max_transfers,
                      accessibilite_params, forbidden, allowed, clockwise, rt_level);

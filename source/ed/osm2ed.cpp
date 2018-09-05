@@ -570,7 +570,7 @@ void OSMRelation::build_polygon(OSMCache& cache) const {
             if (!node->is_defined()) {
                 continue;
             }
-            const auto p = point(float(node->lon()), float(node->lat()));
+            const auto p = point(node->lon(), node->lat());
             tmp_polygon.outer().push_back(p);
         }
 
@@ -600,7 +600,7 @@ void OSMRelation::build_polygon(OSMCache& cache) const {
                 if (!node->is_defined()) {
                     continue;
                 }
-                const auto p = point(float(node->lon()), float(node->lat()));
+                const auto p = point(node->lon(), node->lat());
                 tmp_polygon.outer().push_back(p);
             }
             next_node = next_way->nodes.back();
@@ -669,7 +669,7 @@ void OSMRelation::build_geometry(OSMCache& cache) const {
                 continue;
             }
             if (ref.role == "admin_centre") {
-                set_centre(float(node_it->lon()), float(node_it->lat()));
+                set_centre(node_it->lon(), node_it->lat());
                 break;
             }
         }
@@ -687,7 +687,6 @@ void PoiHouseNumberVisitor::node_callback(uint64_t osm_id, double lon, double la
     }
 }
 
-
 /*
  * We read another time ways to insert housenumbers and poi
  */
@@ -701,7 +700,7 @@ void PoiHouseNumberVisitor::way_callback(uint64_t osm_id, const CanalTP::Tags &t
         if (node_it == cache.nodes.end() || !node_it->is_defined()) {
             continue;
         }
-        const auto p = point(float(node_it->lon()), float(node_it->lat()));
+        const auto p = point(node_it->lon(), node_it->lat());
         tmp_polygon.outer().push_back(p);
     }
     if (tmp_polygon.outer().size() <= 2) {
@@ -848,8 +847,8 @@ const OSMWay* PoiHouseNumberVisitor::find_way(const CanalTP::Tags& tags, const d
     double min_distance = std::numeric_limits<double>::max();
     const OSMWay* candidate_way = nullptr;
     point p(lon, lat);
-    for (const auto admin_ways : it_ways->second) {
-        for (const auto way_it : admin_ways.second) {
+    for (const auto& admin_ways : it_ways->second) {
+        for (const auto& way_it : admin_ways.second) {
             const auto& way = *way_it;
             const auto distance = way.distance(p);
             if (distance < min_distance) {
@@ -893,8 +892,8 @@ void PoiHouseNumberVisitor::fill_poi(const u_int64_t osm_id, const CanalTP::Tags
     if (!parse_pois)
         return;
     //Note: POIs can come from the node or the way and we need that information to have a unique id
-    const auto poi_id = to_string(osm_relation_type) + std::to_string(osm_id);
-    if (data.pois.find(poi_id) != data.pois.end()) {
+    OsmPoi poi(osm_relation_type, osm_id);
+    if (data.pois.find(poi.uri) != data.pois.end()) {
         return;
     }
 
@@ -903,8 +902,6 @@ void PoiHouseNumberVisitor::fill_poi(const u_int64_t osm_id, const CanalTP::Tags
         return;
     }
 
-    // we have found a POI and we know it's type
-    ed::types::Poi poi;
     //type
     poi.poi_type = data.poi_types[applicable_rule->poi_type_id];
     //name
@@ -927,12 +924,12 @@ void PoiHouseNumberVisitor::fill_poi(const u_int64_t osm_id, const CanalTP::Tags
     poi.coord.set_lon(lon);
     poi.coord.set_lat(lat);
 
-    data.pois[poi_id] = poi;
+    data.pois[poi.uri] = poi;
 }
 
 void OSMCache::flag_nodes() {
     for (const auto& way : ways) {
-        for (const auto node: way.nodes) {
+        for (const auto& node: way.nodes) {
             if(node->is_defined()) {
                 node->set_first_or_last();
                 break;
@@ -947,9 +944,7 @@ void OSMCache::flag_nodes() {
     }
 }
 
-}}
-
-int main(int argc, char** argv) {
+int osm2ed(int argc, const char** argv) {
     navitia::init_app();
     auto logger = log4cplus::Logger::getInstance("log");
     pt::ptime start;
@@ -972,8 +967,7 @@ int main(int argc, char** argv) {
     po::store(po::parse_command_line(argc, argv, desc), vm);
 
     start = pt::microsec_clock::local_time();
-    po::notify(vm);
-
+   
     if(vm.count("version")){
         std::cout << argv[0] << " " << navitia::config::project_version << " "
                   << navitia::config::navitia_build_type << std::endl;
@@ -1004,7 +998,9 @@ int main(int argc, char** argv) {
 
     if (! vm.count("poi-type")) {
         json_poi_types = ed::connectors::DEFAULT_JSON_POI_TYPES;
-    }
+    } 
+    
+    po::notify(vm);
     const ed::connectors::PoiTypeParams poi_params(json_poi_types);
 
     ed::EdPersistor persistor(connection_string);
@@ -1042,3 +1038,5 @@ int main(int argc, char** argv) {
     persistor.insert_metadata_georef();
     return 0;
 }
+
+}}

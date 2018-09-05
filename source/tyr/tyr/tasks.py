@@ -40,21 +40,21 @@ from flask import current_app
 import kombu
 
 from tyr.binarisation import gtfs2ed, osm2ed, ed2nav, fusio2ed, geopal2ed, fare2ed, poi2ed, synonym2ed, \
-    shape2ed, load_bounding_shape, bano2mimir, osm2mimir, stops2mimir
+    shape2ed, load_bounding_shape, bano2mimir, osm2mimir, stops2mimir, ntfs2mimir
 from tyr.binarisation import reload_data, move_to_backupdirectory
 from tyr import celery
 from navitiacommon import models, task_pb2, utils
 from tyr.helper import load_instance_config, get_instance_logger
 from navitiacommon.launch_exec import launch_exec
-
-
+from datetime import datetime, timedelta
 @celery.task()
 def finish_job(job_id):
     """
     use for mark a job as done after all the required task has been executed
     """
     job = models.Job.query.get(job_id)
-    job.state = 'done'
+    if job.state != 'failed':
+        job.state = 'done'
     models.db.session.commit()
 
 
@@ -120,16 +120,20 @@ def import_data(files, instance, backup_file, async=True, reload=True, custom_ou
     if actions:
         models.db.session.add(job)
         models.db.session.commit()
+        # We pass the job id to each tasks, but job need to be commited for having an id
         for action in actions:
             action.kwargs['job_id'] = job.id
-        #We pass the job id to each tasks, but job need to be commited for having an id
+        # Create binary file (New .nav.lz4)
         binarisation = [ed2nav.si(instance_config, job.id, custom_output_dir)]
         actions.append(chain(*binarisation))
-        if dataset.family_type == 'pt' and instance.import_stops_in_mimir:
-            # if we are loading pt data we might want to load the stops to autocomplete
-            actions.append(stops2mimir.si(instance_config, filename, job.id, dataset_uid=dataset.uid))
+        # Reload kraken with new data after binarisation (New .nav.lz4)
         if reload:
             actions.append(reload_data.si(instance_config, job.id))
+
+        for dataset in job.data_sets:
+            if dataset.family_type == 'pt':
+                actions.extend(send_to_mimir(instance, dataset.name))
+
         actions.append(finish_job.si(job.id))
         if async:
             return chain(*actions).delay()
@@ -138,13 +142,59 @@ def import_data(files, instance, backup_file, async=True, reload=True, custom_ou
             return chain(*actions).apply()
 
 
+def send_to_mimir(instance, filename):
+    """
+    :param instance: instance to receive the data
+    :param filename: file to inject towards mimir
+
+    - create a job with a data_set
+    - data injection towards mimir(stops2mimir, ntfs2mimir)
+
+    returns action list
+    """
+    # This test is to avoid creating a new job if there is no action on mimir.
+    if not (instance.import_ntfs_in_mimir or instance.import_stops_in_mimir):
+        return []
+
+    actions = []
+    job = models.Job()
+    instance_config = load_instance_config(instance.name)
+    job.instance = instance
+    job.state = 'pending'
+
+    dataset = models.DataSet()
+    dataset.family_type = 'mimir'
+    dataset.type = 'fusio'
+
+    #currently the name of a dataset is the path to it
+    dataset.name = filename
+    models.db.session.add(dataset)
+    job.data_sets.append(dataset)
+
+    models.db.session.add(job)
+    models.db.session.commit()
+
+    # Import ntfs in Mimir
+    if instance.import_ntfs_in_mimir:
+        actions.append(ntfs2mimir.si(instance_config, filename, job.id, dataset_uid=dataset.uid))
+
+    # Import stops in Mimir
+    # if we are loading pt data we might want to load the stops to autocomplete
+    if instance.import_stops_in_mimir and not instance.import_ntfs_in_mimir:
+        actions.append(stops2mimir.si(instance_config, filename, job.id, dataset_uid=dataset.uid))
+
+    actions.append(finish_job.si(job.id))
+    return actions
+
+
 @celery.task()
 def update_data():
     for instance in models.Instance.query_existing().all():
         current_app.logger.debug("Update data of : {}".format(instance.name))
         instance_config = load_instance_config(instance.name)
         files = glob.glob(instance_config.source_directory + "/*")
-        import_data(files, instance, backup_file=True)
+        if files:
+            import_data(files, instance, backup_file=True)
 
 
 BANO_REGEXP = re.compile('.*bano.*')
@@ -241,7 +291,10 @@ def import_in_mimir(_file, instance, async=True):
     """
     current_app.logger.debug("Import pt data to mimir")
     instance_config = load_instance_config(instance.name)
-    action = stops2mimir.si(instance_config, _file)
+    if instance.import_ntfs_in_mimir:
+        action = ntfs2mimir.si(instance_config, _file)
+    if instance.import_stops_in_mimir and not instance.import_ntfs_in_mimir:
+        action = stops2mimir.si(instance_config, _file)
     if async:
         return action.delay()
     else:
@@ -289,6 +342,35 @@ def purge_instance(instance_id, nb_to_keep):
     logger.info('we remove: %s', to_remove)
     for path in to_remove:
         shutil.rmtree(path)
+
+@celery.task()
+def purge_jobs(days_to_keep=None):
+    """
+    Delete old jobs in database and backup folders associated
+    :param days_to_keep: Period of time to keep jobs (in days). The default value is 'JOB_MAX_PERIOD_TO_KEEP'
+    """
+    if days_to_keep is None:
+        days_to_keep = current_app.config.get('JOB_MAX_PERIOD_TO_KEEP', 60)
+
+    time_limit = datetime.utcnow() - timedelta(days=int(days_to_keep))
+    # Purge all instances (even discarded = true)
+    instances = models.Instance.query_all().all()
+
+    logger = logging.getLogger(__name__)
+    logger.info('Purge old jobs and datasets backup created before {}'.format(time_limit))
+
+    for instance in instances:
+        datasets_to_delete = instance.delete_old_jobs_and_list_datasets(time_limit)
+
+        if datasets_to_delete:
+            backups_to_delete = set(os.path.realpath(os.path.dirname(dataset)) for dataset in datasets_to_delete)
+            logger.info('backups_to_delete are: {}'.format(backups_to_delete))
+
+            for path in backups_to_delete:
+                if os.path.exists(path):
+                    shutil.rmtree('{}'.format(path))
+                else:
+                    logger.warning('Folder {} can\'t be found'.format(path))
 
 
 @celery.task()

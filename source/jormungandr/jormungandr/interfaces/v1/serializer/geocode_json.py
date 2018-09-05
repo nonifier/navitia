@@ -29,12 +29,12 @@ from __future__ import absolute_import
 import serpy
 from .base import LiteralField, NestedPropertyField, IntNestedPropertyField, value_by_path, \
     BetaEndpointsSerializer
-from flask.ext.restful import abort
+import logging
 from jormungandr.interfaces.v1.serializer import jsonschema
 from jormungandr.interfaces.v1.fields import raw_feed_publisher_bano, raw_feed_publisher_osm
-from jormungandr.interfaces.v1.serializer.base import DictGenericSerializer
+from jormungandr.interfaces.v1.serializer.base import NestedDictGenericField, NestedDictCodeField, NestedPropertiesField, NestedDictCommentField
 from jormungandr.utils import get_house_number
-from jormungandr.autocomplete.geocodejson import create_address_field
+from jormungandr.autocomplete.geocodejson import create_address_field, get_lon_lat
 
 
 class CoordField(jsonschema.Field):
@@ -88,7 +88,7 @@ class AdministrativeRegionsSerializer(serpy.Field):
                 res = {
                     'id': admin['id'],
                     'insee': admin['insee'],
-                    'name': admin['label'],
+                    'name': admin['name'],
                     'label': admin['label'],
                     'level': admin['level'],
                     'coord': {
@@ -128,7 +128,7 @@ class AdministrativeRegionSerializer(serpy.DictSerializer):
     coord = CoordField()
     insee = NestedPropertyField(attr='properties.geocoding.citycode')
     level = IntNestedPropertyField(attr='properties.geocoding.level')
-    administrative_regions = AdministrativeRegionsSerializer()
+    administrative_regions = AdministrativeRegionsSerializer(display_none=False)
 
 
 class GeocodeAdminSerializer(serpy.DictSerializer):
@@ -137,6 +137,7 @@ class GeocodeAdminSerializer(serpy.DictSerializer):
     quality = LiteralField(0, deprecated=True)
     embedded_type = LiteralField("administrative_region", display_none=True)
     administrative_region = jsonschema.MethodField()
+    distance = IntNestedPropertyField(attr='distance', display_none=False)
 
     def get_administrative_region(self, obj):
         return AdministrativeRegionSerializer(obj).data
@@ -152,7 +153,7 @@ class PoiSerializer(serpy.DictSerializer):
     coord = CoordField()
     label = NestedPropertyField(attr='properties.geocoding.label', display_none=True)
     name = NestedPropertyField(attr='properties.geocoding.name', display_none=True)
-    administrative_regions = AdministrativeRegionsSerializer()
+    administrative_regions = AdministrativeRegionsSerializer(display_none=False)
     poi_type = jsonschema.MethodField(display_none=False)
     properties = jsonschema.MethodField(display_none=False)
     address = jsonschema.MethodField(display_none=False)
@@ -169,7 +170,8 @@ class PoiSerializer(serpy.DictSerializer):
         address = obj.get('properties', {}).get('geocoding', {}).get('address', None)
         if not address:
             return None
-        return create_address_field(address)
+        poi_lon, poi_lat = get_lon_lat(obj)
+        return create_address_field(address, poi_lat=poi_lat, poi_lon=poi_lon)
 
 
 class GeocodePoiSerializer(serpy.DictSerializer):
@@ -178,6 +180,7 @@ class GeocodePoiSerializer(serpy.DictSerializer):
     id = NestedPropertyField(attr='properties.geocoding.id', display_none=True)
     name = NestedPropertyField(attr='properties.geocoding.label', display_none=True)
     poi = jsonschema.MethodField()
+    distance = IntNestedPropertyField(attr='distance', display_none=False)
 
     def get_poi(self, obj):
         return PoiSerializer(obj).data
@@ -189,7 +192,7 @@ class AddressSerializer(serpy.DictSerializer):
     house_number = jsonschema.MethodField(display_none=True)
     label = NestedPropertyField(attr='properties.geocoding.label', display_none=True)
     name = NestedPropertyField(attr='properties.geocoding.name', display_none=True)
-    administrative_regions = AdministrativeRegionsSerializer()
+    administrative_regions = AdministrativeRegionsSerializer(display_none=False)
 
     def get_house_number(self, obj):
         geocoding = obj.get('properties', {}).get('geocoding', {})
@@ -202,6 +205,7 @@ class GeocodeAddressSerializer(serpy.DictSerializer):
     id = CoordId(display_none=True)
     name = NestedPropertyField(attr='properties.geocoding.label', display_none=True)
     address = jsonschema.MethodField()
+    distance = IntNestedPropertyField(attr='distance', display_none=False)
 
     def get_address(self, obj):
         return AddressSerializer(obj).data
@@ -212,23 +216,22 @@ class StopAreaSerializer(serpy.DictSerializer):
     coord = CoordField()
     label = NestedPropertyField(attr='properties.geocoding.label', display_none=True)
     name = NestedPropertyField(attr='properties.geocoding.name', display_none=True)
-    administrative_regions = AdministrativeRegionsSerializer()
+    administrative_regions = AdministrativeRegionsSerializer(display_none=False)
     timezone = NestedPropertyField(attr='properties.geocoding.timezone')
-    commercial_modes = jsonschema.MethodField()
-    physical_modes = jsonschema.MethodField()
+    commercial_modes = NestedDictGenericField(attr='properties.geocoding.commercial_modes', many=True)
+    physical_modes = NestedDictGenericField(attr='properties.geocoding.physical_modes', many=True)
+    comments = NestedDictCommentField(attr='properties.geocoding.comments', many=True)
+    comment = jsonschema.MethodField(display_none=True)
+    codes = NestedDictCodeField(attr='properties.geocoding.codes', many=True)
+    properties = NestedPropertiesField(attr='properties.geocoding.properties', display_none=False)
 
-    def fill_modes(self, modes):
-        if not modes:
-            return []
-        return [DictGenericSerializer(mode).data for mode in modes]
-
-    def get_commercial_modes(self, obj):
-        modes = obj.get('properties', {}).get('geocoding', {}).get('commercial_modes', [])
-        return self.fill_modes(modes)
-
-    def get_physical_modes(self, obj):
-        modes = obj.get('properties', {}).get('geocoding', {}).get('physical_modes', [])
-        return self.fill_modes(modes)
+    def get_comment(self, obj):
+        # To be compatible with old version, we create the "comment" field in addition.
+        # This field is a simple string, so we take only one comment (In our case, the first
+        # element of the list).
+        comments = obj.get('properties', {}).get('geocoding', {}).get('comments')
+        if comments:
+            return next(iter(comments or []), None).get('name')
 
 
 class GeocodeStopAreaSerializer(serpy.DictSerializer):
@@ -237,29 +240,41 @@ class GeocodeStopAreaSerializer(serpy.DictSerializer):
     id = NestedPropertyField(attr='properties.geocoding.id', display_none=True)
     name = NestedPropertyField(attr='properties.geocoding.label', display_none=True)
     stop_area = jsonschema.MethodField()
+    distance = IntNestedPropertyField(attr='distance', display_none=False)
 
     def get_stop_area(self, obj):
         return StopAreaSerializer(obj).data
 
 
 class GeocodePlacesSerializer(serpy.DictSerializer):
-    places = jsonschema.MethodField()
+    places = jsonschema.MethodField(display_none=True)
     warnings = BetaEndpointsSerializer()
-    feed_publishers = LiteralField([raw_feed_publisher_bano,
-                                    raw_feed_publisher_osm])
+    feed_publishers = jsonschema.MethodField()
 
     def get_places(self, obj):
         map_serializer = {
             'city': GeocodeAdminSerializer,
+            'administrative_region': GeocodeAdminSerializer,
             'street': GeocodeAddressSerializer,
             'house': GeocodeAddressSerializer,
             'poi': GeocodePoiSerializer,
             'public_transport:stop_area': GeocodeStopAreaSerializer
         }
         res = []
-        for feature in obj.get('features', {}):
+        for feature in obj.get('features', []):
             type_ = feature.get('properties', {}).get('geocoding', {}).get('type')
             if not type_ or type_ not in map_serializer:
-                abort(404, message='Unknown places type {}'.format(type_))
+                logging.getLogger(__name__).error('Place not serialized (unknown type): {}'.format(feature))
+                continue
             res.append(map_serializer[type_](feature).data)
         return res
+
+    def get_feed_publishers(self, obj):
+        fp = []
+        for feature in obj.get('features', []):
+            feed_pubs = feature.get('properties', {}).get('geocoding', {}).get('feed_publishers')
+            if feed_pubs:
+                [fp.append(x) for x in feed_pubs if x not in fp]
+        # By default, keep BANO & OSM as feed publishers
+        fp.extend([raw_feed_publisher_bano, raw_feed_publisher_osm])
+        return fp

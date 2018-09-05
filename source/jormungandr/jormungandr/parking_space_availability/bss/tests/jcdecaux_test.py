@@ -29,7 +29,7 @@
 # www.navitia.io
 from __future__ import absolute_import, print_function, unicode_literals, division
 from jormungandr.parking_space_availability.bss.jcdecaux import JcdecauxProvider
-from jormungandr.parking_space_availability.bss.stands import Stands
+from jormungandr.parking_space_availability.bss.stands import Stands, StandsStatus
 from mock import MagicMock
 import requests_mock
 
@@ -44,6 +44,7 @@ poi = {
         'id': 'poi_type:amenity:bicycle_rental'
     }
 }
+
 
 def parking_space_availability_jcdecaux_support_poi_test():
     """
@@ -64,41 +65,62 @@ def parking_space_availability_jcdecaux_support_poi_test():
     invalid_poi = {'properties': {}}
     assert not provider.support_poi(invalid_poi)
 
+
 def parking_space_availability_jcdecaux_get_informations_test():
     """
-    Jcdecaux validate return good stands informations or None if an error occured
+    The service returns realtime stand information or stand with status='Unavailable' if an error occured
     """
     webservice_response = {'2': {
         'available_bike_stands': 4,
-        'available_bikes': 8
+        'available_bikes': 8,
+        'status': 'OPEN'
     }}
     provider = JcdecauxProvider(u"vélib'", 'Paris', 'api_key', {'jcdecaux'})
     provider._call_webservice = MagicMock(return_value=webservice_response)
-    assert provider.get_informations(poi) == Stands(4, 8)
+    assert provider.get_informations(poi) == Stands(4, 8, StandsStatus.open)
     provider._call_webservice = MagicMock(return_value=None)
-    assert provider.get_informations(poi) is None
+    assert provider.get_informations(poi) == Stands(0, 0, StandsStatus.unavailable)
     invalid_poi = {}
-    assert provider.get_informations(invalid_poi) is None
+    assert provider.get_informations(invalid_poi) == Stands(0, 0, StandsStatus.unavailable)
+
 
 def parking_space_availability_jcdecaux_get_informations_unauthorized_test():
     """
-    Jcdecaux validate return None if not authorized
+    The service returns realtime stand information or stand with status='Unavailable' if not authorized
     """
     webservice_unauthorized_response = {
         'error': 'Unauthorized'
     }
     provider = JcdecauxProvider(u"vélib'", 'Paris', 'unauthorized_api_key', {'jcdecaux'})
     provider._call_webservice = MagicMock(return_value=webservice_unauthorized_response)
-    assert provider.get_informations(poi) is None
+    assert provider.get_informations(poi) == Stands(0, 0, StandsStatus.unavailable)
+
+
+def parking_space_availability_jcdecaux_get_informations_with_status_Closed_test():
+
+    webservice_response = {'2': {
+        'available_bike_stands': 4,
+        'available_bikes': 8,
+        'status': 'CLOSED'
+    }}
+    provider = JcdecauxProvider(u"vélib'", 'Paris', 'api_key', {'jcdecaux'})
+    provider._call_webservice = MagicMock(return_value=webservice_response)
+    assert provider.get_informations(poi) == Stands(0, 0, StandsStatus.closed)
+    provider._call_webservice = MagicMock(return_value=None)
+    assert provider.get_informations(poi) == Stands(0, 0, StandsStatus.unavailable)
+    invalid_poi = {}
+    assert provider.get_informations(invalid_poi) == Stands(0, 0, StandsStatus.unavailable)
+
 
 def test_call_mocked_request():
     webservice_response = [{
         'number': 2,
         'available_bike_stands': 4,
-        'available_bikes': 8
+        'available_bikes': 8,
+        'status': 'OPEN'
     }]
     provider = JcdecauxProvider(u"vélib'", 'Paris', 'api_key', {'jcdecaux'})
     with requests_mock.Mocker() as m:
         m.get('https://api.jcdecaux.com/vls/v1/stations/', json=webservice_response)
-        assert provider.get_informations(poi) == Stands(4, 8)
+        assert provider.get_informations(poi) == Stands(4, 8, StandsStatus.open)
         assert m.called

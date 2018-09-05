@@ -42,7 +42,7 @@ from jormungandr.interfaces.parsers import depth_argument, DateTimeFormat, defau
 from jormungandr.interfaces.v1.errors import ManageError
 from jormungandr.interfaces.v1.Coord import Coord
 from jormungandr.timezone import set_request_timezone
-from jormungandr.interfaces.common import odt_levels, add_poi_infos_types
+from jormungandr.interfaces.common import odt_levels, add_poi_infos_types, handle_poi_infos
 from jormungandr.utils import date_to_timestamp
 from jormungandr.resources_utils import ResourceUtc
 from datetime import datetime
@@ -107,6 +107,8 @@ class Uri(ResourceUri, ResourceUtc):
         if is_collection:
             parser.add_argument("filter", type=six.text_type, default="",
                                 help="The filter parameter")
+        parser.add_argument("tags[]", type=six.text_type, action="append",
+                            help="If filled, will restrain the search within the given disruption tags")
         self.collection = collection
         self.get_decorators.insert(0, ManageError())
 
@@ -114,14 +116,6 @@ class Uri(ResourceUri, ResourceUtc):
         collection = self.collection
 
         args = self.parsers["get"].parse_args()
-
-        # handle headsign
-        if args.get("headsign"):
-            f = u"vehicle_journey.has_headsign({})".format(protect(args["headsign"]))
-            if args.get("filter"):
-                args["filter"] += " and " + f
-            else:
-                args["filter"] = f
 
         if args['disable_geojson']:
             g.disable_geojson = True
@@ -163,17 +157,19 @@ class Uri(ResourceUri, ResourceUtc):
 
         if not self.region:
             return {"error": "No region"}, 404
+        uris = []
         if uri:
             if uri[-1] == "/":
                 uri = uri[:-1]
             uris = uri.split("/")
             if collection is None:
                 collection = uris[-1] if len(uris) % 2 != 0 else uris[-2]
-            args["filter"] = self.get_filter(uris, args)
+        args["filter"] = self.get_filter(uris, args)
+
         if collection and id:
             f = u'{o}.uri={v}'.format(o=collections_to_resource_type[collection], v=protect(id))
             if args.get("filter"):
-                args["filter"] += " and " + f
+                args["filter"] = '({}) and {}'.format(args["filter"], f)
             else:
                 args["filter"] = f
 
@@ -376,17 +372,17 @@ def pois(is_collection):
             self.get_decorators.insert(1, get_obj_serializer(self))
             self.parsers["get"].add_argument("original_id", type=six.text_type,
                                              help="original uri of the object you want to query")
-            self.parsers["get"].add_argument("bss_stands", type=BooleanType(), default=True,
-                                             help="Show bss stands availability")
+            self.parsers["get"].add_argument("bss_stands", type=BooleanType(), default=False,
+                                             help="Deprecated - Use add_poi_infos[]=bss_stands")
             self.parsers["get"].add_argument("add_poi_infos[]", type=OptionValue(add_poi_infos_types),
                                              default=['bss_stands', 'car_park'],
                                              dest="add_poi_infos", action="append",
                                              help="Show more information about the poi if it's available, for instance,"
-                                                  " show BSS/car park availability in the pois(BSS/car park) of "
+                                                  " show BSS/car park availability in the pois(BSS/car park) of the "
                                                   "response")
 
             args = self.parsers["get"].parse_args()
-            if args["add_poi_infos"] or args["bss_stands"]:
+            if handle_poi_infos(args["add_poi_infos"], args["bss_stands"]):
                 self.get_decorators.insert(2, ManageParkingPlaces(self, 'pois'))
 
     return Pois
