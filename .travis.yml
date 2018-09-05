@@ -1,8 +1,21 @@
 
-langage: minimal
+language: cpp
+
+git:
+  submodules: false
+
+before_install: 
+  - echo "Before install"
 
 install:
+  - ls -l
   - echo "This is the install process"
+
+before_script:
+  - echo "Before Script event"  
 
 script:
   - echo "This is the script process"
+
+after_script:
+  - echo "After Script event"  
