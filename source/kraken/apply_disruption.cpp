@@ -200,6 +200,7 @@ struct add_impacts_visitor : public apply_impacts_visitor {
             mvj->push_unique_impact(impact);
         } else if (in(impact->severity->effect, {nt::disruption::Effect::SIGNIFICANT_DELAYS,
                                                  nt::disruption::Effect::MODIFIED_SERVICE,
+                                                 nt::disruption::Effect::REDUCED_SERVICE,
                                                  nt::disruption::Effect::DETOUR}) &&
                    // we don't want to apply delay or detour without stoptime's information
                    // if there is no stoptimes it should be modeled as a NO_SERVICE
@@ -501,6 +502,7 @@ static bool is_modifying_effect(nt::disruption::Effect e) {
     return in(e, {nt::disruption::Effect::NO_SERVICE,
                   nt::disruption::Effect::SIGNIFICANT_DELAYS,
                   nt::disruption::Effect::MODIFIED_SERVICE,
+                  nt::disruption::Effect::REDUCED_SERVICE,
                   nt::disruption::Effect::DETOUR});
 }
 
