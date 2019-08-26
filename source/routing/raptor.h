@@ -224,6 +224,12 @@ struct RAPTOR {
                            bool clockwise);
 
     ~RAPTOR() = default;
+
+    std::string print_jpps_from_sp();
+    std::string print_current_labels();
+    std::string print_all_labels();
+    std::string print_best_labels();
+    std::string print_starting_points_snd_phase(std::vector<StartingPointSndPhase> & starting_points);
 };
 
 }  // namespace routing
