@@ -434,7 +434,7 @@ RAPTOR::Journeys RAPTOR::compute_all_journeys(const map_stop_point_duration& dep
 
     first_raptor_loop(calc_dep, departure_datetime, rt_level, bound, max_transfers, accessibilite_params, clockwise);
 
-    LOG4CPLUS_TRACE(logger, "labels after first pass : " << std::endl << print_all_labels() );
+    //LOG4CPLUS_TRACE(logger, "labels after first pass : " << std::endl << print_all_labels() );
 
     // LOG4CPLUS_TRACE(logger, print_best_labels() );
 
@@ -516,7 +516,7 @@ RAPTOR::Journeys RAPTOR::compute_all_journeys(const map_stop_point_duration& dep
         init(init_map, working_labels.dt_pt(start.sp_idx), !clockwise, accessibilite_params.properties);
         boucleRAPTOR(!clockwise, rt_level, max_transfers);
 
-        LOG4CPLUS_TRACE(logger, std::endl << "before solution_reader " << std::endl << print_all_labels() );
+        //LOG4CPLUS_TRACE(logger, std::endl << "before solution_reader " << std::endl << print_all_labels() );
 
         read_solutions(*this, solutions, !clockwise, departure_datetime, departures, destinations, rt_level,
                        accessibilite_params, transfer_penalty, start);
