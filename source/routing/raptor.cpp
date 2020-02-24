@@ -93,12 +93,11 @@ bool RAPTOR::apply_vj_extension(const Visitor& v,
             if (!v.comp(workingDt, best_labels_pts[sp_idx])) {
                 continue;
             }
-            LOG4CPLUS_TRACE(logger, "Updating label dt count : " << count 
-                                    << " sp " << data.pt_data->stop_points[sp_idx.val]->uri
-                                    << " from " << working_labels.dt_pt(sp_idx)
-                                    << " to "  << workingDt
-                                    << " throught : " << st.vehicle_journey->route->line->uri
-                            );
+
+            LOG4CPLUS_TRACE(
+                logger, "Updating label dt count : " << count << " sp " << data.pt_data->stop_points[sp_idx.val]->uri
+                                                     << " from " << working_labels.dt_pt(sp_idx) << " to " << workingDt
+                                                     << " throught : " << st.vehicle_journey->route->line->uri);
             working_labels.mut_dt_pt(sp_idx) = workingDt;
             best_labels_pts[sp_idx] = workingDt;
             result = true;
@@ -134,12 +133,10 @@ bool RAPTOR::foot_path(const Visitor& v) {
                 continue;
             }
 
-            LOG4CPLUS_TRACE(logger, "Updating label transfer count : " << count 
-                        << " sp " << data.pt_data->stop_points[destination_sp_idx.val]->uri
-                        << " from " << working_labels.dt_transfer(sp_idx)
-                        << " to "  << next
-                        << " throught connection : " << data.pt_data->stop_points[sp_idx.val]->uri
-                );
+            LOG4CPLUS_TRACE(logger, "Updating label transfer count : "
+                                        << count << " sp " << data.pt_data->stop_points[destination_sp_idx.val]->uri
+                                        << " from " << working_labels.dt_transfer(sp_idx) << " to " << next
+                                        << " throught connection : " << data.pt_data->stop_points[sp_idx.val]->uri);
 
             // if we can improve the best label, we mark it
             working_labels.mut_dt_transfer(destination_sp_idx) = next;
@@ -416,16 +413,14 @@ RAPTOR::Journeys RAPTOR::compute_all_journeys(const map_stop_point_duration& dep
                                               bool clockwise,
                                               const boost::optional<navitia::time_duration>& direct_path_dur,
                                               const size_t max_extra_second_pass) {
-
     log4cplus::Logger logger = log4cplus::Logger::getInstance(LOG4CPLUS_TEXT("raptor"));
 
     LOG4CPLUS_TRACE(logger, "departure_datetime : " << iso_string(departure_datetime, data)
-                            << " bound : " << iso_string(bound, data)
-                    );
+                                                    << " bound : " << iso_string(bound, data));
 
     auto start_raptor = std::chrono::system_clock::now();
 
-    //auto solutions = ParetoFront<Journey, Dominates /*, JourneyParetoFrontVisitor*/>(Dominates(clockwise));
+    // auto solutions = ParetoFront<Journey, Dominates /*, JourneyParetoFrontVisitor*/>(Dominates(clockwise));
     auto dominator = Dominates(clockwise);
     auto solutions = Solutions(dominator);
 
@@ -448,7 +443,7 @@ RAPTOR::Journeys RAPTOR::compute_all_journeys(const map_stop_point_duration& dep
 
     first_raptor_loop(calc_dep, departure_datetime, rt_level, bound, max_transfers, accessibilite_params, clockwise);
 
-    //LOG4CPLUS_TRACE(logger, "labels after first pass : " << std::endl << print_all_labels() );
+    // LOG4CPLUS_TRACE(logger, "labels after first pass : " << std::endl << print_all_labels() );
 
     // LOG4CPLUS_TRACE(logger, print_best_labels() );
 
@@ -474,7 +469,8 @@ RAPTOR::Journeys RAPTOR::compute_all_journeys(const map_stop_point_duration& dep
     init_best_pts_snd_pass(calc_dep, departure_datetime, clockwise, best_labels_pts_for_snd_pass);
     auto best_labels_transfers_for_snd_pass = snd_pass_best_labels(clockwise, best_labels_pts);
 
-    LOG4CPLUS_TRACE(logger, "starting points 2nd phase " << std::endl << print_starting_points_snd_phase(starting_points));
+    LOG4CPLUS_TRACE(logger, "starting points 2nd phase " << std::endl
+                                                         << print_starting_points_snd_phase(starting_points));
 
     unsigned lower_bound_fb = std::numeric_limits<unsigned>::max();
     for (const auto& pair_sp_dt : calc_dep) {
@@ -487,25 +483,26 @@ RAPTOR::Journeys RAPTOR::compute_all_journeys(const map_stop_point_duration& dep
     for (const auto& start : starting_points) {
         navitia::type::StopPoint* start_stop_point = data.pt_data->stop_points[start.sp_idx.val];
 
-        LOG4CPLUS_TRACE(logger, std::endl << "Second pass from " << start_stop_point->uri << "   count : " << start.count
-                                    << std::endl << std::endl
-                                    // << "   count : " << start.count
-                                    // << " end_dt : " << iso_string(start.end_dt, data)
-                                    // << " fallback_dur : " << start.fallback_dur
-                                    // << " has_priority : " << start.has_priority
-                        );
+        LOG4CPLUS_TRACE(logger, std::endl
+                                    << "Second pass from " << start_stop_point->uri << "   count : " << start.count
+                                    << std::endl
+                                    << std::endl
+                        // << "   count : " << start.count
+                        // << " end_dt : " << iso_string(start.end_dt, data)
+                        // << " fallback_dur : " << start.fallback_dur
+                        // << " has_priority : " << start.has_priority
+        );
 
         Journey fake_journey =
             convert_to_bound(start, lower_bound_fb, data.dataRaptor->min_connection_time, transfer_penalty, clockwise);
-        
-        LOG4CPLUS_TRACE(logger," fake journey : " << fake_journey);
-        
+
+        LOG4CPLUS_TRACE(logger, " fake journey : " << fake_journey);
 
         if (solutions.contains_better_than(fake_journey)) {
             LOG4CPLUS_TRACE(logger, "has better solution than fake journey from " << start_stop_point->uri);
-            for(auto solution : solutions) {
+            for (auto solution : solutions) {
                 if (dominator(solution, fake_journey)) {
-                    LOG4CPLUS_TRACE(logger,"  dominated by : " << solution);
+                    LOG4CPLUS_TRACE(logger, "  dominated by : " << solution);
                     break;
                 }
             }
@@ -530,12 +527,12 @@ RAPTOR::Journeys RAPTOR::compute_all_journeys(const map_stop_point_duration& dep
         init(init_map, working_labels.dt_pt(start.sp_idx), !clockwise, accessibilite_params.properties);
         boucleRAPTOR(!clockwise, rt_level, max_transfers);
 
-        //LOG4CPLUS_TRACE(logger, std::endl << "before solution_reader " << std::endl << print_all_labels() );
+        LOG4CPLUS_DEBUG(logger, std::endl << "before solution_reader " << std::endl << print_all_labels());
 
         read_solutions(*this, solutions, !clockwise, departure_datetime, departures, destinations, rt_level,
                        accessibilite_params, transfer_penalty, start);
 
-        LOG4CPLUS_TRACE(logger, "end of loop body, nb of solutions : " << solutions.size());
+        LOG4CPLUS_DEBUG(logger, "end of loop body, nb of solutions : " << solutions.size());
 
         ++nb_snd_pass;
     }
@@ -717,7 +714,7 @@ void RAPTOR::raptor_loop(Visitor visitor, const nt::RTLevel rt_level, uint32_t m
     log4cplus::Logger logger = log4cplus::Logger::getInstance(LOG4CPLUS_TEXT("raptor"));
     bool continue_algorithm = true;
     count = 0;  //< Count iteration of raptor algorithm
- 
+
     LOG4CPLUS_TRACE(logger, "start raptor loop");
 
     while (continue_algorithm && count <= max_transfers) {
@@ -761,13 +758,11 @@ void RAPTOR::raptor_loop(Visitor visitor, const nt::RTLevel rt_level, uint32_t m
                             && visitor.comp(workingDt, best_labels_pts[jpp.sp_idx])
                             && valid_stop_points[jpp.sp_idx.val])  // we need to check the accessibility
                         {
-
-                            LOG4CPLUS_TRACE(logger, "Updating label dt count : " << count 
-                                                    << " sp " << data.pt_data->stop_points[jpp.sp_idx.val]->uri
-                                                    << " from " << working_labels.dt_pt(jpp.sp_idx)
-                                                    << " to "  << workingDt
-                                                    << " throught : " << st.vehicle_journey->route->line->uri
-                                           );
+                            LOG4CPLUS_TRACE(logger, "Updating label dt count : "
+                                                        << count << " sp "
+                                                        << data.pt_data->stop_points[jpp.sp_idx.val]->uri << " from "
+                                                        << working_labels.dt_pt(jpp.sp_idx) << " to " << workingDt
+                                                        << " throught : " << st.vehicle_journey->route->line->uri);
 
                             working_labels.mut_dt_pt(jpp.sp_idx) = workingDt;
                             best_labels_pts[jpp.sp_idx] = working_labels.dt_pt(jpp.sp_idx);
@@ -867,20 +862,18 @@ int RAPTOR::best_round(SpIdx sp_idx) {
     return -1;
 }
 
-
 std::string RAPTOR::print_jpps_from_sp() {
     std::ostringstream output;
     for (auto stop_point_jpps : jpps_from_sp) {
         SpIdx sp_idx = stop_point_jpps.first;
         navitia::type::StopPoint* stop_point = data.pt_data->stop_points[sp_idx.val];
         output << "stop point : " << stop_point->uri << std::endl;
-        for(auto jpp : stop_point_jpps.second) {
+        for (auto jpp : stop_point_jpps.second) {
             // JppIdx jpp_idx = jpp.idx;
             // JpIdx jp_idx   = jpp.jp_idx;
 
             // const JourneyPatternPoint journey_pattern_point = data.dataRaptor->jp_container.get(jpp_idx);
             // const JourneyPattern      journey_pattern       = data.dataRaptor->jp_container.get(jp_idx);
-            
 
             output << "  " << jpp.idx.val << " " << jpp.jp_idx.val << std::endl;
         }
@@ -894,98 +887,86 @@ std::string RAPTOR::print_current_labels() {
     output << "count : " << count << std::endl;
     for (auto stop_point_date_itr : current_labels.get_dt_pts()) {
         SpIdx sp_idx = stop_point_date_itr.first;
-        DateTime dt  = stop_point_date_itr.second;
+        DateTime dt = stop_point_date_itr.second;
         navitia::type::StopPoint* stop_point = data.pt_data->stop_points[sp_idx.val];
         output << "stop point : " << stop_point->uri;
-        if ( current_labels.pt_is_initialized(sp_idx) ) {
+        if (current_labels.pt_is_initialized(sp_idx)) {
             output << " dt_pt : " << str(dt) << std::endl;
+        } else {
+            output << " dt_pt : "
+                   << "not init" << std::endl;
         }
-        else {
-            output << " dt_pt : " << "not init" << std::endl;
-        }
-               
     }
     return output.str();
 }
 
 std::string RAPTOR::print_all_labels() {
     std::ostringstream output;
-    for(uint32_t stop_point_id = 0; stop_point_id < data.pt_data->stop_points.size(); ++stop_point_id) {
+    for (uint32_t stop_point_id = 0; stop_point_id < data.pt_data->stop_points.size(); ++stop_point_id) {
         SpIdx sp_idx = SpIdx(stop_point_id);
         navitia::type::StopPoint* stop_point = data.pt_data->stop_points[sp_idx.val];
 
         bool print_stop_point = false;
-        for(unsigned int count_id = 0; count_id < labels.size(); ++count_id) {
+        for (unsigned int count_id = 0; count_id < labels.size(); ++count_id) {
             Labels& current_labels = labels[count_id];
-            if( current_labels.pt_is_initialized(sp_idx) || current_labels.transfer_is_initialized(sp_idx) ) {
+            if (current_labels.pt_is_initialized(sp_idx) || current_labels.transfer_is_initialized(sp_idx)) {
                 print_stop_point = true;
                 break;
             }
         }
 
-        if(print_stop_point) {
+        if (print_stop_point) {
             output << "" << stop_point->uri << " : " << std::endl;
 
-            for(unsigned int count_id = 0; count_id < labels.size(); ++count_id) {
+            for (unsigned int count_id = 0; count_id < labels.size(); ++count_id) {
                 Labels& current_labels = labels[count_id];
-                if( ! current_labels.pt_is_initialized(sp_idx) && !current_labels.transfer_is_initialized(sp_idx) ) {
+                if (!current_labels.pt_is_initialized(sp_idx) && !current_labels.transfer_is_initialized(sp_idx)) {
                     continue;
                 }
                 output << "   count : " << count_id;
                 output << " dt_pt : ";
 
-                if ( current_labels.pt_is_initialized(sp_idx) ) {
-                output <<  iso_string(current_labels.dt_pt(sp_idx), data);
-                }
-                else {
-                    output <<  "not init";
+                if (current_labels.pt_is_initialized(sp_idx)) {
+                    output << iso_string(current_labels.dt_pt(sp_idx), data);
+                } else {
+                    output << "not init";
                 }
 
                 output << " transfer_dt : ";
 
-                if ( current_labels.transfer_is_initialized(sp_idx) ) {
-                    output <<  iso_string(current_labels.dt_transfer(sp_idx), data);
+                if (current_labels.transfer_is_initialized(sp_idx)) {
+                    output << iso_string(current_labels.dt_transfer(sp_idx), data);
+                } else {
+                    output << "not init";
                 }
-                else {
-                    output <<  "not init";
-                }    
 
-                output << std::endl;        
-
+                output << std::endl;
             }
         }
     }
     return output.str();
 }
 
-
-
 std::string RAPTOR::print_best_labels() {
     std::ostringstream output;
-    for(uint32_t stop_point_id = 0; stop_point_id < data.pt_data->stop_points.size(); ++stop_point_id) {
+    for (uint32_t stop_point_id = 0; stop_point_id < data.pt_data->stop_points.size(); ++stop_point_id) {
         SpIdx sp_idx = SpIdx(stop_point_id);
         navitia::type::StopPoint* stop_point = data.pt_data->stop_points[sp_idx.val];
 
-        output << "" << stop_point->uri << " : " 
-                << "best arrival : " << iso_string(best_labels_pts[sp_idx], data)
-                << " best departure : " << iso_string(best_labels_transfers[sp_idx], data)
-                << std::endl;
-
-        
+        output << "" << stop_point->uri << " : "
+               << "best arrival : " << iso_string(best_labels_pts[sp_idx], data)
+               << " best departure : " << iso_string(best_labels_transfers[sp_idx], data) << std::endl;
     }
     return output.str();
 }
 
-std::string RAPTOR::print_starting_points_snd_phase(std::vector<StartingPointSndPhase> & starting_points) {
+std::string RAPTOR::print_starting_points_snd_phase(std::vector<StartingPointSndPhase>& starting_points) {
     std::ostringstream output;
-    for(auto start_point : starting_points) {
+    for (auto start_point : starting_points) {
         navitia::type::StopPoint* stop_point = data.pt_data->stop_points[start_point.sp_idx.val];
-        output << "" << stop_point->uri 
-                << " count : " << start_point.count
-                << " end_dt : " << iso_string(start_point.end_dt, data)
-                << " fallback_dur : " << start_point.fallback_dur
-                << " has_priority : " << start_point.has_priority
-                << std::endl;
+        output << "" << stop_point->uri << " count : " << start_point.count
+               << " end_dt : " << iso_string(start_point.end_dt, data) << " fallback_dur : " << start_point.fallback_dur
+               << " has_priority : " << start_point.has_priority << std::endl;
     }
     return output.str();
 }

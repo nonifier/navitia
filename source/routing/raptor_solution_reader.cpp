@@ -307,7 +307,7 @@ Journey make_bound_journey(DateTime beg,
     }
 
     // for the rest KPI, we don't know yet the accurate values, so we'll provide the best lb possible
-    journey.transfer_dur = transfer_penalty * count + navitia::seconds((count - 1) * lower_bound_conn);
+    journey.transfer_dur = transfer_penalty * (count - 1) + navitia::seconds((count - 1) * lower_bound_conn);
     journey.min_waiting_dur = navitia::time_duration(boost::date_time::pos_infin);
     journey.nb_vj_extentions = 0;
     return journey;
@@ -589,7 +589,6 @@ void read_solutions(const RAPTOR& raptor,
             SpIdx sp_idx = a.first;
             navitia::type::StopPoint* stop_point = raptor.data.pt_data->stop_points[sp_idx.val];
 
-
             if (!working_labels.pt_is_initialized(a.first)) {
                 continue;
             }
@@ -602,22 +601,14 @@ void read_solutions(const RAPTOR& raptor,
                                         raptor.labels[0].dt_transfer(end_point.sp_idx),
                                         navitia::seconds(end_point.fallback_dur), count,
                                         raptor.data.dataRaptor->min_connection_time, transfer_penalty, v.clockwise());
-            LOG4CPLUS_TRACE(logger, "Journey from " 
-                                    << stop_point->uri
-                                    <<" count : " << count
-                                    << std::endl << j
-            );
+            LOG4CPLUS_TRACE(logger, "Journey from " << stop_point->uri << " count : " << count << std::endl << j);
 
             if (reader.solutions.contains_better_than(j)) {
-                LOG4CPLUS_TRACE(logger, "Journey  " 
-                                        << " discarded"
-                );
-
+                LOG4CPLUS_DEBUG(logger, "Solution has better than :" << j << "\n");
                 continue;
             }
             try {
-                LOG4CPLUS_TRACE(logger, "try to build journey " 
-                );
+                LOG4CPLUS_TRACE(logger, "try to build journey ");
                 reader.begin_pt(count, a.first, working_labels.dt_pt(a.first));
             } catch (stop_search&) {
             }
@@ -628,15 +619,14 @@ void read_solutions(const RAPTOR& raptor,
 }  // anonymous namespace
 
 std::ostream& operator<<(std::ostream& os, const Journey& j) {
-    os << "([" 
-        << "departure_dt : " << navitia::str(j.departure_dt) << ", " 
-        << "arrival_dt : " << navitia::str(j.arrival_dt) << ", " 
-        << "min_wainting_dur : " << j.min_waiting_dur << ", " 
-        << "transfer_dur : " << j.transfer_dur << "], [" 
-        << "nb sections : " << j.sections.size() << ", " 
-        << "nb extensions : " << unsigned(j.nb_vj_extentions) << "], "
-        << "foot duration : " << j.sn_dur <<")"
-        << std::endl;
+    os << "(["
+       << "departure_dt : " << navitia::str(j.departure_dt) << ", "
+       << "arrival_dt : " << navitia::str(j.arrival_dt) << ", "
+       << "min_wainting_dur : " << j.min_waiting_dur << ", "
+       << "transfer_dur : " << j.transfer_dur << "], ["
+       << "nb sections : " << j.sections.size() << ", "
+       << "nb extensions : " << unsigned(j.nb_vj_extentions) << "], "
+       << "foot duration : " << j.sn_dur << ")" << std::endl;
     for (const auto& s : j.sections) {
         if (s.get_in_st) {
             os << "(" << s.get_in_st->vehicle_journey->route->line->uri << ": " << s.get_in_st->stop_point->uri;

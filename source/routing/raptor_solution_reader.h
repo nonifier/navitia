@@ -53,25 +53,25 @@ struct Dominates {
     }
 };
 
+struct ParetoFrontLogger {
+    log4cplus::Logger logger = log4cplus::Logger::getInstance(LOG4CPLUS_TEXT("raptor"));
 
-struct ParetoFrontVisitor {
-    void at_dominated(const Journey& to_insert, const Journey& in_pool){
-        log4cplus::Logger logger = log4cplus::Logger::getInstance(LOG4CPLUS_TEXT("raptor"));
-        LOG4CPLUS_TRACE(logger, "Journey dominated ! " 
-                            << std::endl << to_insert
-                            << "  dominated by : " << std::endl << in_pool);
+    void debug(const Journey& o) { LOG4CPLUS_DEBUG(logger, "trying to add : " << o << "\n"); }
+    void is_dominated_by(const Journey& o) { LOG4CPLUS_DEBUG(logger, "IS DOMINAYED BY : " << o << "\n"); }
+    void at_dominated(const Journey& to_insert, const Journey& in_pool) {
+        LOG4CPLUS_DEBUG(logger, "Journey dominated ! " << std::endl
+                                                       << to_insert << "  dominated by : " << std::endl
+                                                       << in_pool);
     }
-    void at_dominates(const Journey& to_insert, const Journey& in_pool){
-        log4cplus::Logger logger = log4cplus::Logger::getInstance(LOG4CPLUS_TEXT("raptor"));
-        LOG4CPLUS_TRACE(logger, "Journey removed from solution pool " << std::endl << in_pool);
+    void at_dominates(const Journey& /*to_insert*/, const Journey& in_pool) {
+        LOG4CPLUS_DEBUG(logger, "Journey removed from solution pool " << std::endl << in_pool);
     }
-    void at_inserted(const Journey& j){
-        log4cplus::Logger logger = log4cplus::Logger::getInstance(LOG4CPLUS_TEXT("raptor"));
-        LOG4CPLUS_TRACE(logger, "Adding  journey to solution pool" << std::endl << j);
+    void at_inserted(const Journey& j) {
+        LOG4CPLUS_DEBUG(logger, "Adding  journey to solution pool" << std::endl << j);
     }
 };
 
-typedef ParetoFront<Journey, Dominates, ParetoFrontVisitor> Solutions;
+typedef ParetoFront<Journey, Dominates, ParetoFrontLogger> Solutions;
 
 // deps (resp. arrs) are departure (resp. arrival) stop points and
 // durations (not clockwise dependent).
