@@ -21,11 +21,11 @@
     <a href="#" id="nav-button">
       <span>
         NAV
-        <img src="../images/navbar.png" />
+        <img src="../images/navbar.png" alt="Navbar" />
       </span>
     </a>
     <div class="tocify-wrapper">
-      <img src="../images/logo.png" />
+      <img src="../images/logo.png" alt="Logo" />
       <div id="toc">
       </div>
     </div>
@@ -36,10 +36,8 @@
 
 <h2 id="code-40x">Code 40x</h2>
 
-<blockquote>
-<p>When there&rsquo;s an error you&rsquo;ll receive a response with a error object
-containing a unique error id</p>
-</blockquote>
+<p>When Navitia is unable to give an answer, you&rsquo;ll receive a response with an error object
+containing a unique error id, in a 4XX http code response</p>
 <pre class="highlight shell"><code><span class="c">#request</span>
 <span class="gp">$ </span>curl <span class="s1">'https://api.navitia.io/v1/coverage/sandbox/stop_areas/wrong-one'</span> -H <span class="s1">'Authorization: 3b036afe-0110-4202-b9ed-99718476c2e0'</span>
 
@@ -54,12 +52,10 @@ HTTP/1.1 404 OK
 <span class="o">}</span>
 </code></pre>
 
-<p>This errors appears when there is an error in the request</p>
-
 <p>The are two possible 40x http codes :</p>
 
 <ul>
-<li>  Code 404:</li>
+<li>  Code 404: unable to find an object</li>
 </ul>
 
 <table><thead>
@@ -78,20 +74,20 @@ HTTP/1.1 404 OK
 </tr>
 <tr>
 <td>no_destination</td>
-<td>Couldn&rsquo;t find an destination for the journeys</td>
+<td>Couldn&rsquo;t find a destination for the journeys</td>
 </tr>
 <tr>
 <td>no_origin_nor_destination</td>
-<td>Couldn&rsquo;t find an origin nor a destination for the journeys</td>
+<td>Couldn&rsquo;t find neither origin nor destination for the journeys</td>
 </tr>
 <tr>
 <td>unknown_object</td>
-<td>As it&rsquo;s said</td>
+<td>Couldn&rsquo;t find one of the request parameters. It can be the region, the API or a PT object</td>
 </tr>
 </tbody></table>
 
 <ul>
-<li>  Code 400:</li>
+<li>  Code 400: bad request</li>
 </ul>
 
 <table><thead>
@@ -108,11 +104,64 @@ HTTP/1.1 404 OK
 <td>unable_to_parse</td>
 <td>When you use a mal-formed custom filter</td>
 </tr>
+<tr>
+<td>unknown_api</td>
+<td>When you request an inexistant endpoint</td>
+</tr>
+<tr>
+<td>bad_format</td>
+<td>When you provide ill-formated parameter (coord for example)</td>
+</tr>
+<tr>
+<td>config_exception</td>
+<td>When you try to configure an external service (street network back-end or autocomplete) with wrong parameters</td>
+</tr>
+</tbody></table>
+
+<h2 id="code-200">Code 200</h2>
+
+<p>Even if everything is correct (input parameters, internal processing)
+Navitia can end up finding that the correct answer is empty.</p>
+
+<table><thead>
+<tr>
+<th>Error id</th>
+<th>Description</th>
+</tr>
+</thead><tbody>
+<tr>
+<td>no_solution</td>
+<td>From data, there is no solution available given the request</td>
+</tr>
 </tbody></table>
 
 <h2 id="code-50x">Code 50x</h2>
 
 <p>Ouch. Technical issue :/</p>
+
+<table><thead>
+<tr>
+<th>Error id</th>
+<th>Description</th>
+</tr>
+</thead><tbody>
+<tr>
+<td>internal_error</td>
+<td>Something bad and unexpected has happened internally</td>
+</tr>
+<tr>
+<td>service_unavailable</td>
+<td>Navitia isn&rsquo;t responding</td>
+</tr>
+<tr>
+<td>dead_socket</td>
+<td>The requested region isn&rsquo;t responding</td>
+</tr>
+<tr>
+<td>technical_error</td>
+<td>An external service (street network back-end or autocomplete) isn&rsquo;t responding</td>
+</tr>
+</tbody></table>
 
       </div>
       <div class="dark-box">

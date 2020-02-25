@@ -21,11 +21,11 @@
     <a href="#" id="nav-button">
       <span>
         NAV
-        <img src="../images/navbar.png" />
+        <img src="../images/navbar.png" alt="Navbar" />
       </span>
     </a>
     <div class="tocify-wrapper">
-      <img src="../images/logo.png" />
+      <img src="../images/logo.png" alt="Logo" />
       <div id="toc">
       </div>
     </div>
@@ -37,7 +37,34 @@
 <p>This chapter shows some usages with the minimal required arguments. However, this is not a reference and not all APIs nor arguments are shown.</p>
 
 <aside class="notice">
-You will have to use your own token with the examples below.
+You will have to use your own token with the examples below (if you switch to another coverage than &ldquo;sandbox&rdquo;).
+</aside>
+
+<h2 id="basics-on-the-api-request">Basics on the API request</h2>
+<pre class="highlight shell"><code><span class="c"># Web is too shiny: JSON, urlencode and curl forever!</span>
+<span class="gp">$ </span>curl <span class="s1">'https://api.navitia.io/v1/coverage/sandbox/stop_areas/stop_area%3ARAT%3ASA%3ABASTI/lines/line%3ARAT%3AM5/departures?count=4&amp;depth=2&amp;'</span> -H <span class="s1">'Authorization: 3b036afe-0110-4202-b9ed-99718476c2e0'</span>
+</code></pre>
+
+<p>A query to Navitia&rsquo;s API is divided in 4 parts, as highlighted by colors in a <a href="http://canaltp.github.io/navitia-playground/play.html?request=https%3A%2F%2Fapi.navitia.io%2Fv1%2Fcoverage%2Fsandbox%2Fstop_areas%2Fstop_area%253ARAT%253ASA%253ABASTI%2Flines%2Fline%253ARAT%253AM5%2Fdepartures%3Fcount%3D4%26depth%3D2%26&amp;token=3b036afe-0110-4202-b9ed-99718476c2e0">Navitia Playground example</a>:<br>
+<img alt="Navitia basic request" src="../images/navitia_basic.png" /></p>
+
+<ol>
+<li><strong>Root url</strong> of the API, the address of the server.<br>
+Here <code class="prettyprint">https://api.navitia.io/v1/</code></li>
+<li><strong>Path</strong>, used to filter the request and precise what is affected by the query. This filter is an intersection of multiple <code class="prettyprint">key/value</code> (logical <em>AND</em>).<br>
+Here <code class="prettyprint">/coverage/sandbox/stop_areas/stop_area:RAT:SA:BASTI/lines/line:RAT:M5/</code> means we are looking for information on everything that is in the region <em>&ldquo;sandbox&rdquo;</em> and that is stricly related to both station <em>&ldquo;Bastille&rdquo;</em> and line <em>&ldquo;metro 5&rdquo;</em>.</li>
+<li><strong>Endpoint</strong>, specifies what type of information is requested, so the <em>feature</em>. It can be a service, like <em>journeys</em>, <em>isochrones</em>, <em>places</em> or a collection of objects, like <em>lines</em>, <em>stop_areas</em>, etc.<br>
+Here <code class="prettyprint">/departures?</code> means we are requesting <em>&ldquo;next departures&rdquo;</em>.</li>
+<li><strong>Parameters</strong>, used to specify any additional detail linked to the endpoint requested.<br>
+Here <code class="prettyprint">?count=4&amp;depth=2&amp;</code> means we are requesting the next <strong><em>4</em></strong> departures and we want the response to be detailed to a depth of <strong><em>2</em></strong>.</li>
+</ol>
+
+<aside class="success">
+    Tadaaa!
+    </br>
+    <a href="http://canaltp.github.io/navitia-playground/play.html?request=https%3A%2F%2Fapi.navitia.io%2Fv1%2Fcoverage%2Fsandbox%2Fstop_areas%2Fstop_area%253ARAT%253ASA%253ABASTI%2Flines%2Fline%253ARAT%253AM5%2Fdepartures%3Fcount%3D4%26depth%3D2%26&token=3b036afe-0110-4202-b9ed-99718476c2e0">https://api.navitia.io/v1/coverage/sandbox/stop_areas/stop_area:RAT:SA:BASTI/lines/line:RAT:M5/departures?count=4&depth=2</a>
+    </br>
+    We get the next 4 departures for the metro 5 at Bastille in the great &ldquo;sandbox&rdquo; region, and with a middle level of details.
 </aside>
 
 <h2 id="a-quick-exploration">A quick exploration</h2>

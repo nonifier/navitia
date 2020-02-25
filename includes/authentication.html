@@ -21,11 +21,11 @@
     <a href="#" id="nav-button">
       <span>
         NAV
-        <img src="../images/navbar.png" />
+        <img src="../images/navbar.png" alt="Navbar" />
       </span>
     </a>
     <div class="tocify-wrapper">
-      <img src="../images/logo.png" />
+      <img src="../images/logo.png" alt="Logo" />
       <div id="toc">
       </div>
     </div>
@@ -35,11 +35,11 @@
         <h1 id="authentication">Authentication</h1>
 
 <blockquote>
-<p>3 ways to request Navitia</p>
+<p>4 ways to request Navitia</p>
 </blockquote>
 <pre class="highlight shell"><code>
 <span class="c">#using "headers"</span>
-<span class="gp">$ </span>curl <span class="s1">'https://api.navitia.io/v1/coverage'</span> -H <span class="s1">'Authorization: 3b036afe-0110-4202-b9ed-99718476c2e0'</span> 
+<span class="gp">$ </span>curl <span class="s1">'https://api.navitia.io/v1/coverage'</span> -H <span class="s1">'Authorization: 3b036afe-0110-4202-b9ed-99718476c2e0'</span>
 
 <span class="c">#using "users": don't forget ":" at the end of line !</span>
 <span class="gp">$ </span>curl https://api.navitia.io/v1/coverage -u 3b036afe-0110-4202-b9ed-99718476c2e0:
@@ -47,15 +47,18 @@
 <span class="c">#using "straight URL"</span>
 <span class="gp">$ </span>curl https://3b036afe-0110-4202-b9ed-99718476c2e0@api.navitia.io/v1/coverage
 
+<span class="c">#using "key" parameter</span>
+<span class="gp">$ </span>curl https://api.navitia.io/v1/coverage?key<span class="o">=</span>3b036afe-0110-4202-b9ed-99718476c2e0
+
 </code></pre>
 
-<p>Authentication is required to use <strong>navitia.io</strong>. When you register we will give you 
+<p>Authentication is required to use <strong>navitia.io</strong>. When you register we will give you
 an authentication key that must accompany each API call you make.</p>
 
-<p><strong>Navitia.io</strong> uses <a href="http://tools.ietf.org/html/rfc2617#section-2">Basic HTTP authentication</a> 
+<p><strong>Navitia.io</strong> uses <a href="http://tools.ietf.org/html/rfc2617#section-2">Basic HTTP authentication</a>
 for authentication, where the username is the key, and password remains empty.</p>
 
-<p>For example, in a <a href="https://en.wikipedia.org/wiki/CURL">Curl</a> way, you can request either :</p>
+<p>For example, in a <a href="https://en.wikipedia.org/wiki/CURL">Curl</a> way, you can request either (using the fake sandbox token):</p>
 
 <p><code class="prettyprint">curl &#39;https://api.navitia.io/v1/coverage&#39; -H &#39;Authorization: 3b036afe-0110-4202-b9ed-99718476c2e0&#39;</code></p>
 
@@ -68,6 +71,15 @@ for authentication, where the username is the key, and password remains empty.</
 <p>or</p>
 
 <p><code class="prettyprint">curl https://3b036afe-0110-4202-b9ed-99718476c2e0@api.navitia.io/v1/coverage</code></p>
+
+<p>or</p>
+
+<p><code class="prettyprint">curl https://api.navitia.io/v1/coverage?key=3b036afe-0110-4202-b9ed-99718476c2e0</code></p>
+
+<aside class="notice">
+The token used within this documentation has only access to the &ldquo;sandbox&rdquo; coverage.</br>
+The private token obtained on https://navitia.io has access to other coverages, but not to &ldquo;sandbox&rdquo;.
+</aside>
 
       </div>
       <div class="dark-box">

@@ -21,11 +21,11 @@
     <a href="#" id="nav-button">
       <span>
         NAV
-        <img src="../images/navbar.png" />
+        <img src="../images/navbar.png" alt="Navbar" />
       </span>
     </a>
     <div class="tocify-wrapper">
-      <img src="../images/logo.png" />
+      <img src="../images/logo.png" alt="Logo" />
       <div id="toc">
       </div>
     </div>
@@ -103,7 +103,7 @@ That&rsquo;s lots of links. Links allow you to know all accessible uris and serv
 </tbody></table>
 
 <aside class="notice">
-    The number of objects returned for a request can <b>not be superior than 1000</b>. 
+    The number of objects returned for a request can <b>not be superior than 1000</b>.
     If you request for more, Navitia will return the first 1000, and you will have to paginate to get next 1000.
 </aside>
 
@@ -160,7 +160,7 @@ HTTP/1.1 200 OK
 <p>Under some link sections, you will find a &ldquo;templated&rdquo; property.</p>
 
 <p>If &ldquo;templated&rdquo; is true, then you will have to format the link with your right id as describe in the example.
-In order to do that, you will have to </p>
+In order to do that, you will have to</p>
 
 <ul>
 <li>take the id from the object you want to get the linked service</li>
@@ -184,33 +184,41 @@ In order to do that, you will have to </p>
 <p>That means :</p>
 
 <ul>
-<li>inside the self stream ( <strong>&ldquo;internal&rdquo;: true</strong> ) </li>
-<li>you will find a <strong>disruptions</strong> section ( <strong>&ldquo;rel&rdquo;: &ldquo;disruptions&rdquo;</strong> ) </li>
-<li>containing some <a href="#disruption">disruptions</a> objects ( <strong>&ldquo;type&rdquo;: &ldquo;disruption&rdquo;</strong> ) </li>
+<li>inside the self stream ( <strong>&ldquo;internal&rdquo;: true</strong> )</li>
+<li>you will find a <strong>disruptions</strong> section ( <strong>&ldquo;rel&rdquo;: &ldquo;disruptions&rdquo;</strong> )</li>
+<li>containing some <a href="#disruption">disruptions</a> objects ( <strong>&ldquo;type&rdquo;: &ldquo;disruption&rdquo;</strong> )</li>
 <li>where you can find the details of your object ( <strong>&ldquo;id&rdquo;: &ldquo;edc46f3a-ad3d-11e4-a5e1-005056a44da2&rdquo;</strong> ).</li>
 </ul>
 
 <h2 id="objects-order">Objects order</h2>
 
-<p>Unless specified, objects lists are not sorted and stability of objects&rsquo; order is not guaranteed.</p>
+<p>Unless specified, objects lists are not sorted and stability of objects&rsquo; order is not guaranteed.<br>
+This is also true for the ordering of the attributes of objects.</p>
 
 <p>Examples of sorted objects tables:</p>
 
 <ul>
-<li>journeys in a &rsquo;/journeys&rsquo; response</li>
-<li>&rsquo;/departures&rsquo; and &rsquo;/arrivals&rsquo;</li>
-<li>&rsquo;/stop_schedules&rsquo;</li>
-<li>stop_points in &rsquo;/routes/<id_route>/stop_points&rsquo;</li>
-<li>&rsquo;/places_nearby&rsquo;</li>
-<li>&rsquo;/places&rsquo;</li>
+<li>journeys in a <code class="prettyprint">/journeys</code> response</li>
+<li><code class="prettyprint">/departures</code> and <code class="prettyprint">/arrivals</code></li>
+<li><code class="prettyprint">/stop_schedules</code></li>
+<li>stop_points in <code class="prettyprint">/routes/{route_id}?depth=3</code></li>
+<li><code class="prettyprint">/places_nearby</code></li>
+<li><code class="prettyprint">/places</code></li>
 </ul>
 
 <p>Examples of unsorted responses:</p>
 
 <ul>
-<li>stop_points in &rsquo;/lines/<id_line>/stop_points&rsquo;</li>
+<li>stop_points in <code class="prettyprint">/lines/{line_id}/stop_points</code></li>
 <li>pretty much everything else&hellip;</li>
 </ul>
+
+<h2 id="objects-attributes">Objects attributes</h2>
+
+<p>Like almost any API, objects are subject to adaptations.<br>
+Please be warned that we allow Navitia to add new attributes to objects, and it will never be considered a breaking change.</p>
+
+<p>We also allow Navitia to add values to enum, so be prepared to that. For example <a href="#section">section&rsquo;s</a> type of journeys are regularly evolving.</p>
 
 <h2 id="lifetime-of-id">Lifetime of id</h2>
 

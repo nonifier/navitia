@@ -21,11 +21,11 @@
     <a href="#" id="nav-button">
       <span>
         NAV
-        <img src="../images/navbar.png" />
+        <img src="../images/navbar.png" alt="Navbar" />
       </span>
     </a>
     <div class="tocify-wrapper">
-      <img src="../images/logo.png" />
+      <img src="../images/logo.png" alt="Logo" />
       <div id="toc">
       </div>
     </div>
@@ -64,7 +64,7 @@ Here are some tagging rules:
 -    itineraries with other types are displayed only if they are relevant
 -    and for a specific type, you may find many relevant itinerary</p>
 
-<p>For example, for a specific request, you can find the &ldquo;best&rdquo; itinerary, 2 &ldquo;less_fallback_walk&rdquo; ones 
+<p>For example, for a specific request, you can find the &ldquo;best&rdquo; itinerary, 2 &ldquo;less_fallback_walk&rdquo; ones
 (with less walking, but taking more time) and no &ldquo;comfort&rdquo; (the &ldquo;best&rdquo; one is the same as the &ldquo;comfort&rdquo; one for example).</p>
 
 <p>The different journey types are:</p>
@@ -124,6 +124,59 @@ Here are some tagging rules:
 <td>A journey without public transport, only bike sharing</td>
 </tr>
 </tbody></table>
+
+<h2 id="service-translation"><a name=Service-translation></a>Service Translation</h2>
+
+<p>When specifying a service in the data through <code class="prettyprint">calendar.txt</code> and <code class="prettyprint">calendar_dates.txt</code>, you might get surprised to see a different result from Navitia&rsquo;s response.</p>
+<pre class="highlight shell"><code><span class="c"># Navitia's interpreted service response</span>
+<span class="o">{</span>
+    <span class="s2">"calendars"</span>: <span class="o">[</span>
+       <span class="o">{</span>
+            <span class="s2">"active_periods"</span>: <span class="o">[</span>
+                <span class="o">{</span>
+                    <span class="s2">"begin"</span>: <span class="s2">"20200101"</span>,
+                    <span class="s2">"end"</span>: <span class="s2">"20200130"</span>
+                <span class="o">}</span>
+            <span class="o">]</span>,
+            <span class="s2">"week_pattern"</span>: <span class="o">{</span>
+                <span class="s2">"monday"</span>: <span class="nb">false</span>,
+                <span class="s2">"tuesday"</span>: <span class="nb">false</span>,
+                <span class="s2">"wednesday"</span>: <span class="nb">false</span>,
+                <span class="s2">"thursday"</span>: <span class="nb">false</span>,
+                <span class="s2">"friday"</span>: <span class="nb">false</span>,
+                <span class="s2">"saturday"</span>: <span class="nb">true</span>,
+                <span class="s2">"sunday"</span>: <span class="nb">true</span>
+            <span class="o">}</span>,
+            <span class="s2">"exceptions"</span>: <span class="o">[</span>
+                <span class="o">{</span>
+                    <span class="s2">"type"</span>: <span class="s2">"remove"</span>,
+                    <span class="s2">"datetime"</span>: <span class="s2">"20200127"</span>
+                <span class="o">}</span>
+            <span class="o">]</span>
+        <span class="o">}</span>
+    <span class="o">]</span>
+</code></pre>
+
+<p>For instance, if you have a trip that:</p>
+
+<ul>
+<li>  occurs every Saturday of January 2020 (in your <code class="prettyprint">calendar.txt</code>)</li>
+<li>  has 3 exceptions that <code class="prettyprint">add</code> the service the first 3 Sundays (<code class="prettyprint">calendar_dates.txt</code>)</li>
+</ul>
+
+<p>You might expect to have that same exact representation for your <code class="prettyprint">/vehicle_journeys</code>, but instead you find something different.</p>
+
+<p>You expected to have 3 <code class="prettyprint">add</code> exceptions but you only have 1 <code class="prettyprint">remove</code>. Also, the week pattern is set to <code class="prettyprint">true</code> on Sunday even though your <code class="prettyprint">calendar.txt</code> said Saturday only.</p>
+
+<p>This is due to a re-interpretation of the service pattern, with one specific goal :</p>
+
+<aside class="notice">
+ Navitia analyzes the input service and computes an equivalent pair of (week_pattern, exceptions) with the **smallest** number of exceptions
+</aside>
+
+<p>This means that Navitia will re-organise the input data, to produce a smaller and more comprehensive response that respects the semantics of the input data.</p>
+
+<p>For more information about the algorithm (in French): <a href="https://github.com/TeXitoi/pinot2015presenter/blob/master/pres/pinot2015presenter-pres.pdf">https://github.com/TeXitoi/pinot2015presenter/blob/master/pres/pinot2015presenter-pres.pdf</a></p>
 
 <h2 id="ridesharing"><a name="ridesharing-stuff"></a>Ridesharing</h2>
 <pre class="highlight shell"><code>simplified output
@@ -204,6 +257,14 @@ This may also be used to obtain a direct ridesharing journey (using <code class=
 Inside this section an attribute ridesharing_journeys contains one or multiple journeys
 depicting specifically the ridesharing ads that could match the above section
 and that could be proposed to the user.</p>
+
+<h2 id="taxi"><a name="taxi-stuff"></a>Taxi</h2>
+
+<aside class="warning">
+    This feature is not available on all coverages, as it is dependent on other parameters of the coverage (how journeys are computed).
+</aside>
+
+<p>With this mode, your journey may contain taxi sections(fallback or direct path). The journey you will obtain is basically the same as a journey by car. The only difference is that with taxi as fallback mode, a buffer time (section &ldquo;waiting&rdquo;, defaulted to 5 min) will appear into the journey. The buffer time won&rsquo;t appear if the journey is a direct path. Depending on the calculator, the journey may pick up ways that are reserved for taxis on not.</p>
 
 <h2 id="on-demand-transportation">On demand transportation</h2>
 
