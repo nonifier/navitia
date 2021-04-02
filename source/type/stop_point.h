@@ -36,6 +36,7 @@ www.navitia.io
 
 #include <boost/container/flat_set.hpp>
 #include <boost/container/flat_map.hpp>
+#include <boost/range/any_range.hpp>
 
 #include <vector>
 #include <set>
@@ -57,7 +58,15 @@ struct StopPoint : public Header, Nameable, hasProperties, HasMessages {
     std::vector<StopPointConnection*> stop_point_connection_list;
     std::set<Dataset*> dataset_list;
     boost::container::flat_set<Route*> route_list;
-    boost::container::flat_map<Route*, std::reference_wrapper<RoutePoint>> route_point_list;
+
+    using RoutePointRef = std::reference_wrapper<RoutePoint>;
+    using RoutePointsMap = boost::container::flat_map<Route*, RoutePointRef>;
+    using RoutePointsMapKey = typename RoutePointsMap::key_type;
+    using RoutePointsRange = boost::any_range<RoutePoint, boost::single_pass_traversal_tag, RoutePointRef>;
+    RoutePointsMap route_point_list;
+
+    const RoutePoint& get_route_point(const StopPoint::RoutePointsMapKey& route) const;
+    RoutePointsRange get_route_points() const;
 
     template <class Archive>
     void serialize(Archive& ar, const unsigned int);

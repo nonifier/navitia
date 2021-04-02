@@ -208,9 +208,9 @@ type::MultiPolygon build_single_isochrone(RAPTOR& raptor,
             circles_classed.emplace_back(center, duration_left);
         }
     }
-    for (const type::StopPoint* sp : stop_points) {
-        SpIdx sp_idx(*sp);
-        const auto best_lbl = raptor.best_labels[sp_idx].dt_pt;
+    for (const type::RoutePoint& rp : type::route_points_from(stop_points)) {
+        const type::StopPoint* sp = rp.stop_point;
+        const auto best_lbl = raptor.best_labels[rp].dt_pt;
         if (in_bound(best_lbl, bound, clockwise)) {
             uint duration_left = abs(int(best_lbl) - int(bound));
             if (duration_left * speed < MIN_RADIUS) {

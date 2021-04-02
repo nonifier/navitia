@@ -82,7 +82,7 @@ void dataRAPTOR::JppsFromJp::load(const JourneyPatternContainer& jp_container) {
         const bool has_freq = !jp.second.freq_vjs.empty();
         for (const auto& jpp_idx : jp.second.jpps) {
             const auto& jpp = jp_container.get(jpp_idx);
-            jpps_from_jp[jp.first].push_back({jpp_idx, jpp.sp_idx, has_freq});
+            jpps_from_jp[jp.first].push_back({jpp_idx, jpp.sp_idx, jpp.rp_idx, has_freq});
         }
     }
     for (auto& jpps : jpps_from_jp.values()) {
@@ -92,8 +92,8 @@ void dataRAPTOR::JppsFromJp::load(const JourneyPatternContainer& jp_container) {
 
 void dataRAPTOR::load(const type::PT_Data& pt_data, size_t cache_size) {
     jp_container.load(pt_data);
-    labels_const.init_inf(pt_data.stop_points);
-    labels_const_reverse.init_min(pt_data.stop_points);
+    labels_const.init_inf(pt_data.route_points);
+    labels_const_reverse.init_min(pt_data.route_points);
 
     connections.load(pt_data);
     jpps_from_sp.load(pt_data, jp_container);

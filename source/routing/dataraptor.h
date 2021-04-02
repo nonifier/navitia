@@ -88,6 +88,7 @@ struct dataRAPTOR {
         struct Jpp {
             JppIdx idx;
             SpIdx sp_idx;
+            RoutePointIdx rp_idx;
             bool has_freq;
         };
         inline const std::vector<Jpp>& operator[](const JpIdx& jp) const { return jpps_from_jp[jp]; }

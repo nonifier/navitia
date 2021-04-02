@@ -51,6 +51,9 @@ www.navitia.io
 #include "raptor_utils.h"
 
 #include "dataraptor.h"
+
+#include <boost/range/adaptor/map.hpp>
+
 #include <unordered_map>
 #include <queue>
 #include <limits>
@@ -61,6 +64,7 @@ namespace routing {
 DateTime limit_bound(const bool clockwise, const DateTime departure_datetime, const DateTime bound);
 
 struct StartingPointSndPhase {
+    RoutePointIdx rp_idx;
     SpIdx sp_idx;
     unsigned count;
     DateTime end_dt;
@@ -99,7 +103,7 @@ struct RAPTOR {
 
     explicit RAPTOR(const navitia::type::Data& data)
         : data(data),
-          best_labels(data.pt_data->stop_points),
+          best_labels(data.pt_data->route_points),
           count(0),
           valid_journey_patterns(data.dataRaptor->jp_container.nb_jps()),
           Q(data.dataRaptor->jp_container.get_jps_values()),
@@ -112,7 +116,7 @@ struct RAPTOR {
     void clear(const bool clockwise, const DateTime bound);
 
     /// Initialize starting points
-    void init(const map_stop_point_duration& dep,
+    void init(const map_route_point_duration& dep,
               const DateTime bound,
               const bool clockwise,
               const type::Properties& properties);
@@ -122,6 +126,11 @@ struct RAPTOR {
 
     inline const type::RoutePoint& get_route_point(RoutePointIdx idx) const {
         return data.pt_data->route_points[idx.val];
+    }
+
+    inline auto get_route_points(SpIdx idx) const {
+        const type::StopPoint* sp = get_sp(idx);
+        return sp->route_point_list | boost::adaptors::map_values;
     }
 
     /// Lance un calcul d'itinéraire entre deux stop areas avec aussi une borne
@@ -228,11 +237,11 @@ struct RAPTOR {
 
     /// Return the round that has found the best solution for this stop point
     /// Return -1 if no solution found
-    int best_round(SpIdx sp_idx);
+    int best_round(RoutePointIdx rp_idx);
 
     /// First raptor loop
     /// externalized for testing purposes
-    void first_raptor_loop(const map_stop_point_duration& departures,
+    void first_raptor_loop(const map_route_point_duration& departures,
                            const DateTime& departure_datetime,
                            const nt::RTLevel rt_level,
                            const DateTime& bound_limit,
@@ -244,6 +253,8 @@ struct RAPTOR {
 
     std::string print_all_labels();
     std::string print_starting_points_snd_phase(std::vector<StartingPointSndPhase>& starting_points);
+
+    map_route_point_duration make_map_route_point_duration(const map_stop_point_duration& sps_dur);
 };
 
 }  // namespace routing

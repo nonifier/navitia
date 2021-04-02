@@ -31,7 +31,7 @@ www.navitia.io
 #pragma once
 
 #include "type/fwd_type.h"
-#include "type/stop_point.h"
+#include "type/route_point.h"
 #include "utils/idx_map.h"
 #include "routing/raptor_utils.h"
 
@@ -64,19 +64,22 @@ struct Label {
 };
 
 struct Labels {
-    using Map = IdxMap<type::StopPoint, DateTime>;
-    using LabelsMap = IdxMap<type::StopPoint, Label>;
+    using Map = IdxMap<type::RoutePoint, DateTime>;
+    using LabelsMap = IdxMap<type::RoutePoint, Label>;
 
     Labels();
-    Labels(const std::vector<type::StopPoint*> stop_points);
+    Labels(const std::vector<type::RoutePoint>& route_points);
     Labels(const Map& dt_pts, const Map& dt_transfers, const Map& walkings, const Map& walking_transfers);
 
     // initialize the structure according to the number of jpp
-    void init_inf(const std::vector<type::StopPoint*>& stops) { init(stops, DateTimeUtils::inf); }
-    void init_min(const std::vector<type::StopPoint*>& stops) { init(stops, DateTimeUtils::min); }
+    void init_inf(const std::vector<type::RoutePoint>& route_points) { init(route_points, DateTimeUtils::inf); }
+    void init_min(const std::vector<type::RoutePoint>& route_points) { init(route_points, DateTimeUtils::min); }
 
-    const Label& operator[](SpIdx sp_idx) const { return labels[sp_idx]; }
-    Label& operator[](SpIdx sp_idx) { return labels[sp_idx]; }
+    const Label& operator[](RoutePointIdx rp_idx) const { return labels[rp_idx]; }
+    Label& operator[](RoutePointIdx rp_idx) { return labels[rp_idx]; }
+
+    const Label& operator[](const type::RoutePoint& rp) const { return labels[RoutePointIdx(rp)]; }
+    Label& operator[](const type::RoutePoint& rp) { return labels[RoutePointIdx(rp)]; }
 
     LabelsMap::range values() { return labels.values(); }
 
@@ -91,10 +94,7 @@ struct Labels {
     void fill_values(DateTime pts, DateTime transfert, DateTime walking, DateTime walking_transfert);
 
 private:
-    void init(const std::vector<type::StopPoint*>& stops, DateTime val);
-
-    const DateTime& dt_pt(SpIdx sp_idx) const { return labels[sp_idx].dt_pt; }
-    DateTime& mut_dt_pt(SpIdx sp_idx) { return labels[sp_idx].dt_pt; }
+    void init(const std::vector<type::RoutePoint>& route_points, DateTime val);
 
     LabelsMap labels;
 };

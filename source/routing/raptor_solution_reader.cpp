@@ -34,8 +34,10 @@ www.navitia.io
 #include "raptor.h"
 #include "raptor_visitors.h"
 #include "utils/logger.h"
+#include "type/route_point.h"
 
 #include <boost/container/flat_map.hpp>
+#include <boost/range/adaptor/map.hpp>
 #include <boost/range/algorithm/find_if.hpp>
 #include <boost/range/algorithm/reverse.hpp>
 #include <utility>
@@ -206,16 +208,22 @@ const Journey& make_journey(const PathElt& path, RaptorSolutionReader<Visitor>& 
     // getting departure/arrival values
     const Journey::Section& dep_section = j.sections.front();
     const Journey::Section& arr_section = j.sections.back();
-    const auto dep_sp_idx = SpIdx(*dep_section.get_in_st->stop_point);
-    const auto arr_sp_idx = SpIdx(*arr_section.get_out_st->stop_point);
 
-    // is_sp_idx(sp_idx)(sp_dur) returns true if sp_idx == sp_dur.first
-    const auto is_sp_idx = [](const SpIdx idx) {
-        return [idx](routing::map_stop_point_duration::const_reference sp_dur) { return sp_dur.first == idx; };
+    const auto& in_st = dep_section.get_in_st;
+    const auto& out_st = dep_section.get_out_st;
+
+    const auto& in_rp = in_st->stop_point->get_route_point(in_st->vehicle_journey->route);
+    const auto& out_rp = out_st->stop_point->get_route_point(out_st->vehicle_journey->route);
+
+    const auto dep_rp_idx = RoutePointIdx(in_rp);
+    const auto arr_rp_idx = RoutePointIdx(out_rp);
+
+    const auto is_rp_idx = [](const RoutePointIdx idx) {
+        return [idx](routing::map_route_point_duration::const_reference rp_dur) { return rp_dur.first == idx; };
     };
-    const auto dep_sp_dur_it = boost::find_if(reader.sp_dur_deps, is_sp_idx(dep_sp_idx));
-    assert(dep_sp_dur_it != reader.sp_dur_deps.end());
-    const auto arr_sp_dur_it = boost::find_if(reader.sp_dur_arrs, is_sp_idx(arr_sp_idx));
+    const auto dep_sp_dur_it = boost::find_if(reader.rp_dur_deps, is_rp_idx(dep_rp_idx));
+    assert(dep_sp_dur_it != reader.rp_dur_deps.end());
+    const auto arr_sp_dur_it = boost::find_if(reader.rp_dur_arrs, is_rp_idx(arr_rp_idx));
     assert(arr_sp_dur_it != reader.sp_dur_arrs.end());
     const auto dep_sn_dur = dep_sp_dur_it->second;
     const auto arr_sn_dur = arr_sp_dur_it->second;
@@ -394,8 +402,8 @@ struct RaptorSolutionReader {
                          Solutions& solutions,
                          const Visitor& vis,  // 3rd pass visitor
                          const DateTime& departure_dt,
-                         const routing::map_stop_point_duration& deps,
-                         const routing::map_stop_point_duration& arrs,
+                         const routing::map_route_point_duration& deps,
+                         const routing::map_route_point_duration& arrs,
                          const type::RTLevel rt_level,
                          const type::AccessibiliteParams& access,
                          navitia::time_duration transfer_penalty,
@@ -403,8 +411,8 @@ struct RaptorSolutionReader {
         : raptor(r),
           v(vis),
           departure_datetime(departure_dt),
-          sp_dur_deps(deps),
-          sp_dur_arrs(arrs),
+          rp_dur_deps(deps),
+          rp_dur_arrs(arrs),
           rt_level(rt_level),
           accessibilite_params(access),
           transfer_penalty(std::move(transfer_penalty)),
@@ -413,8 +421,8 @@ struct RaptorSolutionReader {
     const RAPTOR& raptor;
     const Visitor& v;
     const DateTime departure_datetime;
-    const routing::map_stop_point_duration& sp_dur_deps;  // departures (not clockwise dependent)
-    const routing::map_stop_point_duration& sp_dur_arrs;  // arrivals (not clockwise dependent)
+    const routing::map_route_point_duration& rp_dur_deps;  // departures (not clockwise dependent)
+    const routing::map_route_point_duration& rp_dur_arrs;  // arrivals (not clockwise dependent)
     const type::RTLevel rt_level;
     const type::AccessibiliteParams& accessibilite_params;
     const navitia::time_duration transfer_penalty;
@@ -475,8 +483,10 @@ struct RaptorSolutionReader {
             if (begin_zone != no_zone && begin_zone == end_st.local_traffic_zone) {
                 continue;
             }
+
             const SpIdx end_sp_idx = SpIdx(*end_st.stop_point);
-            const auto& prev_label = raptor.labels[count - 1][end_sp_idx];
+            const type::RoutePoint& end_rp = end_st.stop_point->get_route_point(end_st.vehicle_journey->route);
+            const auto& prev_label = raptor.labels[count - 1][end_rp];
             const DateTime end_limit = prev_label.dt_transfer;
             if (v.comp(end_limit, cur_dt)) {
                 continue;
@@ -506,14 +516,16 @@ struct RaptorSolutionReader {
                                              : raptor.data.dataRaptor->connections.backward_connections;
 
         for (const auto& conn : cnx_list[sp_idx]) {
-            const DateTime transfer_limit = raptor.labels[count][conn.sp_idx].dt_pt;
-            const DateTime transfer_end = v.combine(end_st_dt.second, conn.duration);
-            if (v.comp(transfer_limit, transfer_end)) {
-                continue;
-            }
+            for (const type::RoutePoint& rp : raptor.get_route_points(conn.sp_idx)) {
+                const DateTime transfer_limit = raptor.labels[count][rp].dt_pt;
+                const DateTime transfer_end = v.combine(end_st_dt.second, conn.duration);
+                if (v.comp(transfer_limit, transfer_end)) {
+                    continue;
+                }
 
-            // transfer is OK
-            try_begin_pt(count, conn.sp_idx, transfer_end, end_st_dt, nb_stay_in, transfers);
+                // transfer is OK
+                try_begin_pt(count, conn.sp_idx, RoutePointIdx(rp), transfer_end, end_st_dt, nb_stay_in, transfers);
+            }
         }
     }
 
@@ -532,12 +544,13 @@ struct RaptorSolutionReader {
 
     void try_begin_pt(const unsigned count,
                       const SpIdx begin_sp_idx,
+                      const RoutePointIdx begin_rp_idx,
                       const DateTime begin_dt,
                       const StDt& end_st_dt,
                       const unsigned nb_stay_in,
                       Transfers& transfers) {
         const unsigned transfer_t = v.clockwise() ? begin_dt - end_st_dt.second : end_st_dt.second - begin_dt;
-        const DateTime begin_limit = raptor.labels[count][begin_sp_idx].dt_pt;
+        const DateTime begin_limit = raptor.labels[count][begin_rp_idx].dt_pt;
         for (const auto& jpp : raptor.jpps_from_sp[begin_sp_idx]) {
             // trying to begin
             const auto begin_st_dt = raptor.next_st->next_stop_time(v.stop_event(), jpp.idx, begin_dt, v.clockwise());
@@ -570,8 +583,11 @@ struct RaptorSolutionReader {
         }
     }
 
-    void begin_pt(const unsigned count, const SpIdx begin_sp_idx, const DateTime begin_dt) {
-        const DateTime begin_limit = raptor.labels[count][begin_sp_idx].dt_pt;
+    void begin_pt(const unsigned count,
+                  const RoutePointIdx begin_rp_idx,
+                  const SpIdx begin_sp_idx,
+                  const DateTime begin_dt) {
+        const DateTime begin_limit = raptor.labels[count][begin_rp_idx].dt_pt;
         for (const auto& jpp : raptor.jpps_from_sp[begin_sp_idx]) {
             // trying to begin
             const auto begin_st_dt = raptor.next_st->next_stop_time(v.stop_event(), jpp.idx, begin_dt, v.clockwise());
@@ -593,28 +609,28 @@ void read_solutions(const RAPTOR& raptor,
                     Solutions& solutions,
                     const Visitor& v,
                     const DateTime& departure_datetime,
-                    const routing::map_stop_point_duration& deps,
-                    const routing::map_stop_point_duration& arrs,
+                    const routing::map_route_point_duration& deps,
+                    const routing::map_route_point_duration& arrs,
                     const type::RTLevel rt_level,
                     const type::AccessibiliteParams& accessibilite_params,
                     const navitia::time_duration& transfer_penalty,
                     const StartingPointSndPhase& end_point) {
     auto reader = RaptorSolutionReader<Visitor>(raptor, solutions, v, departure_datetime, deps, arrs, rt_level,
                                                 accessibilite_params, transfer_penalty, end_point);
-    const auto end_point_street_network_duration = (v.clockwise() ? arrs : deps).at(end_point.sp_idx);
+    const auto end_point_street_network_duration = (v.clockwise() ? arrs : deps).at(end_point.rp_idx);
     for (unsigned count = 1; count <= raptor.count; ++count) {
         const auto& working_labels = raptor.labels[count];
-        const auto& first_endpoint_label = raptor.labels[0][end_point.sp_idx];
+        const auto& first_endpoint_label = raptor.labels[0][end_point.rp_idx];
 
         for (const auto& a : v.clockwise() ? deps : arrs) {
-            SpIdx sp_idx = a.first;
-            const auto& working_label = working_labels[sp_idx];
-            navitia::type::StopPoint* stop_point = raptor.data.pt_data->stop_points[sp_idx.val];
+            RoutePointIdx rp_idx = a.first;
+            const auto& working_label = working_labels[rp_idx];
+            navitia::type::StopPoint* stop_point = raptor.data.pt_data->stop_points[rp_idx.val];
 
             if (!is_dt_initialized(working_label.dt_pt)) {
                 continue;
             }
-            if (!raptor.get_sp(a.first)->accessible(accessibilite_params.properties)) {
+            if (!raptor.get_route_point(a.first).stop_point->accessible(accessibilite_params.properties)) {
                 continue;
             }
             reader.nb_sol_added = 0;
@@ -634,7 +650,7 @@ void read_solutions(const RAPTOR& raptor,
             }
             try {
                 LOG4CPLUS_DEBUG(raptor.raptor_logger, "try to build journey ");
-                reader.begin_pt(count, a.first, working_label.dt_pt);
+                reader.begin_pt(count, a.first, SpIdx(*stop_point), working_label.dt_pt);
             } catch (stop_search&) {
             }
         }
@@ -674,8 +690,8 @@ void read_solutions(const RAPTOR& raptor,
                     Solutions& solutions,
                     const bool clockwise,
                     const DateTime& departure_datetime,
-                    const routing::map_stop_point_duration& deps,
-                    const routing::map_stop_point_duration& arrs,
+                    const routing::map_route_point_duration& deps,
+                    const routing::map_route_point_duration& arrs,
                     const type::RTLevel rt_level,
                     const type::AccessibiliteParams& accessibilite_params,
                     const navitia::time_duration& transfer_penalty,

@@ -37,10 +37,12 @@ www.navitia.io
 #include "type/datetime.h"
 #include "type/meta_data.h"
 #include "type/pb_converter.h"
+#include "type/route_point.h"
 #include "type/type_utils.h"
 #include "utils/map_find.h"
 
 #include <boost/date_time/posix_time/posix_time.hpp>
+#include <boost/none.hpp>
 #include <boost/range/algorithm/count.hpp>
 
 #include <chrono>
@@ -955,12 +957,12 @@ static void add_isochrone_response(RAPTOR& raptor,
                                    int max_duration) {
     pbnavitia::PtObject pb_origin;
     pb_creator.fill(&origin, &pb_origin, 0);
-    for (const type::StopPoint* sp : stop_points) {
-        SpIdx sp_idx(*sp);
-        const auto best_lbl = raptor.best_labels[sp_idx].dt_pt;
+    for (const type::RoutePoint& rp : type::route_points_from(stop_points)) {
+        RoutePointIdx rp_idx(rp);
+        const auto best_lbl = raptor.best_labels[rp_idx].dt_pt;
         if ((clockwise && best_lbl < bound) || (!clockwise && best_lbl > bound)) {
-            int round = raptor.best_round(sp_idx);
-            const auto& best_round_label = raptor.labels[round][sp_idx];
+            int round = raptor.best_round(rp_idx);
+            const auto& best_round_label = raptor.labels[round][rp_idx];
 
             if (round == -1 || !is_dt_initialized(best_round_label.dt_pt)) {
                 continue;
@@ -995,9 +997,9 @@ static void add_isochrone_response(RAPTOR& raptor,
                                                        navitia::to_posix_time(best_lbl, raptor.data) + bt::seconds(1));
             if (clockwise) {
                 *pb_journey->mutable_origin() = pb_origin;
-                pb_creator.fill(sp, pb_journey->mutable_destination(), 0);
+                pb_creator.fill(rp.stop_point, pb_journey->mutable_destination(), 0);
             } else {
-                pb_creator.fill(sp, pb_journey->mutable_origin(), 0);
+                pb_creator.fill(rp.stop_point, pb_journey->mutable_origin(), 0);
                 *pb_journey->mutable_destination() = pb_origin;
             }
         }

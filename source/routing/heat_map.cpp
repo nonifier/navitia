@@ -265,9 +265,9 @@ std::vector<navitia::time_duration> init_distance(const georef::GeoRef& worker,
         distances[proj[target_e]] =
             std::min(distances[proj[target_e]], time_duration(seconds(proj.distances[target_e] / speed)));
     }
-    for (const type::StopPoint* sp : stop_points) {
-        SpIdx sp_idx(*sp);
-        const auto& best_lbl = raptor.best_labels[sp_idx].dt_pt;
+    for (const type::RoutePoint& rp : type::route_points_from(stop_points)) {
+        const type::StopPoint* sp = rp.stop_point;
+        const auto& best_lbl = raptor.best_labels[rp].dt_pt;
         if (in_bound(best_lbl, bound, clockwise)) {
             const auto& projections = worker.projected_stop_points[sp->idx];
             const auto& proj = projections[mode];
@@ -296,9 +296,9 @@ static std::vector<georef::vertex_t> init_vertex(const georef::GeoRef& worker,
         initialized_points.push_back(proj[source_e]);
         initialized_points.push_back(proj[target_e]);
     }
-    for (const type::StopPoint* sp : stop_points) {
-        SpIdx sp_idx(*sp);
-        const auto& best_lbl = raptor.best_labels[sp_idx].dt_pt;
+    for (const type::RoutePoint& rp : type::route_points_from(stop_points)) {
+        const type::StopPoint* sp = rp.stop_point;
+        const auto& best_lbl = raptor.best_labels[rp].dt_pt;
         if (in_bound(best_lbl, bound, clockwise)) {
             const auto& projections = worker.projected_stop_points[sp->idx];
             const auto& proj = projections[mode];
@@ -327,9 +327,9 @@ static BoundBox find_boundary_box(const georef::GeoRef& worker,
     if (proj.found) {
         box.set_box(coord_origin, walking_distance(max_duration, 0, speed) + distance_500m);
     }
-    for (const type::StopPoint* sp : stop_points) {
-        SpIdx sp_idx(*sp);
-        const auto& best_lbl = raptor.best_labels[sp_idx].dt_pt;
+    for (const type::RoutePoint& rp : type::route_points_from(stop_points)) {
+        const type::StopPoint* sp = rp.stop_point;
+        const auto& best_lbl = raptor.best_labels[rp].dt_pt;
         if (in_bound(best_lbl, bound, clockwise)) {
             const auto& projections = worker.projected_stop_points[sp->idx];
             const auto& proj = projections[mode];

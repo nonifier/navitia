@@ -39,6 +39,8 @@ www.navitia.io
 #include "georef/georef.h"
 
 #include <boost/serialization/weak_ptr.hpp>
+#include <boost/range/adaptor/map.hpp>
+#include <boost/range/adaptor/type_erased.hpp>
 
 namespace navitia {
 namespace type {
@@ -88,6 +90,14 @@ Indexes StopPoint::get(Type_e type, const PT_Data& data) const {
             break;
     }
     return result;
+}
+
+const RoutePoint& StopPoint::get_route_point(const StopPoint::RoutePointsMapKey& route) const {
+    return route_point_list.at(route);
+}
+
+StopPoint::RoutePointsRange StopPoint::get_route_points() const {
+    return route_point_list | boost::adaptors::map_values | boost::adaptors::type_erased<>();
 }
 
 }  // namespace type

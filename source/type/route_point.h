@@ -31,6 +31,7 @@ www.navitia.io
 #pragma once
 
 #include "type/fwd_type.h"
+#include "type/stop_point.h"
 #include "utils/idx_map.h"
 
 #include <boost/range/any_range.hpp>
@@ -50,6 +51,7 @@ using RoutePointRefs = std::vector<std::reference_wrapper<type::RoutePoint>>;
 using StopPointRange = boost::any_range<StopPoint, boost::forward_traversal_tag, StopPoint&, std::ptrdiff_t>;
 
 RoutePointRefs route_points_from(const StopPointRange& sps);
+RoutePointRefs route_points_from(const std::vector<StopPoint*>& sps);
 
 }  // namespace type
 }  // namespace navitia
